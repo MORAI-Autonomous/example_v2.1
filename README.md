@@ -86,10 +86,10 @@ TCP_SERVER_PORT = 9093
 
 UDP_IP = "127.0.0.1"
 UDP_PORT = 9090
-
+```
 
 ## How To Run
-python example.py
+```python example.py```
 
 ## Key Bindings
 
