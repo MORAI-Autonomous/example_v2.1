@@ -13,14 +13,17 @@ Unreal 기반 시뮬레이터(또는 유사 서버)에 대해:
 ## Features
 
 ### TCP (Control)
-- `0x1200` **FixedStepCommand**: step_count( `uint32` ) 전송
+- `0x1200` **FixedStepCommand**: step_count (`uint32`) 전송
 - `0x1201` **GetStatusCommand**: payload 없음 (응답: ResultCode + Status)
 - `0x1101` **SaveDataCommand**: payload 없음 (응답: ResultCode)
 
 ### UDP (Manual)
 - 헤더 없음
-- payload: `throttle, brake, steer` ( `float64 x 3` = 24 bytes )
+- payload: `throttle, brake, steer` (`float64 x 3` = 24 bytes)
 - 결과 응답을 기다리지 않음 (fire-and-forget)
+
+> Note: ManualCommand uses `float64` by default.  
+> If your server expects `float32` (12 bytes), change `MANUAL_FMT` to `<fff>`.
 
 ### 기타
 - TCP 수신은 **MAGIC(0x4D)** 기반으로 헤더 동기화(resync)
@@ -53,7 +56,7 @@ Unreal 기반 시뮬레이터(또는 유사 서버)에 대해:
 
 | Field | Type |
 |---|---|
-| fixed_delta | float |
+| fixed_delta | float32 |
 | step_index | uint64 |
 | seconds | int64 |
 | nanos | uint32 |
@@ -75,9 +78,25 @@ Unreal 기반 시뮬레이터(또는 유사 서버)에 대해:
 
 ## Configuration
 
+Edit the following values at the top of the script if needed:
+
 ```python
 TCP_SERVER_IP = "127.0.0.1"
 TCP_SERVER_PORT = 9093
 
 UDP_IP = "127.0.0.1"
 UDP_PORT = 9090
+
+
+## How To Run
+python example.py
+
+## Key Bindings
+
+| Key | Action                                                      |
+| --- | ----------------------------------------------------------- |
+| `1` | Send FixedStepCommand (TCP, msg_type=0x1200, step_count=10) |
+| `2` | Send ManualCommand (UDP, 24B payload)                       |
+| `3` | Send GetStatusCommand (TCP, msg_type=0x1201)                |
+| `4` | Send SaveDataCommand (TCP, msg_type=0x1101)                 |
+| `Q` | Quit                                                        |
