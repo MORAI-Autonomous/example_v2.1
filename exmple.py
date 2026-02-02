@@ -16,6 +16,18 @@ TCP_SERVER_PORT = 9093
 UDP_IP = "127.0.0.1"
 UDP_PORT = 9090
 
+# =========================
+# UDP Receiver Config (Vehicle Info)
+# =========================
+VEHICLE_INFO_IP = "0.0.0.0"
+VEHICLE_INFO_PORT = 9092
+
+# Vehicle Info payload (no header)
+# int64 seconds, int32 nanos, char[24] id, float32 x18
+VEHICLE_INFO_FMT = "<qi24s18f"
+VEHICLE_INFO_SIZE = struct.calcsize(VEHICLE_INFO_FMT)  # 108 bytes
+
+
 # ManualCommand payload: throttle, brake, steer (float64 x3) = 24 bytes
 MANUAL_FMT = "<ddd"
 MANUAL_SIZE = struct.calcsize(MANUAL_FMT)
@@ -25,22 +37,22 @@ MANUAL_SIZE = struct.calcsize(MANUAL_FMT)
 # =========================
 MAGIC = 0x4D
 
-MSG_CLASS_REQ  = 0x01
+MSG_CLASS_REQ = 0x01
 MSG_CLASS_RESP = 0x02
 
-MSG_TYPE_SAVE_DATA = 0x1101      # ✅ SaveDataCommand MsgType (서버와 동일하게 맞추기)
+MSG_TYPE_SAVE_DATA = 0x1101
 MSG_TYPE_FIXED_STEP = 0x1200
-MSG_TYPE_GET_STATUS  = 0x1201
+MSG_TYPE_GET_STATUS = 0x1201
 
 FLAG = 0
 
-HEADER_FMT  = "<BBIIIH"
+HEADER_FMT = "<BBIIIH"
 HEADER_SIZE = struct.calcsize(HEADER_FMT)  # 16
 
-RESULT_FMT  = "<II"                        # uint32 result_code, uint32 detail_code
+RESULT_FMT = "<II"  # uint32 result_code, uint32 detail_code
 RESULT_SIZE = struct.calcsize(RESULT_FMT)  # 8
 
-STATUS_FMT  = "<fQqI"   # float, uint64, int64, uint32
+STATUS_FMT = "<fQqI"  # float, uint64, int64, uint32
 STATUS_SIZE = 24
 
 GET_STATUS_PAYLOAD_SIZE = RESULT_SIZE + STATUS_SIZE  # 32
@@ -62,6 +74,7 @@ def recv_exact(sock: socket.socket, n: int) -> bytes:
         buf.extend(chunk)
     return bytes(buf)
 
+
 def recv_header_synced(sock: socket.socket) -> bytes:
     while True:
         b = recv_exact(sock, 1)
@@ -71,8 +84,9 @@ def recv_header_synced(sock: socket.socket) -> bytes:
         rest = recv_exact(sock, HEADER_SIZE - 1)
         header_bytes = b + rest
 
-        # 헤더 검증
-        header_type, msg_class, msg_type, payload_size, request_id, flag = struct.unpack(HEADER_FMT, header_bytes)
+        header_type, msg_class, msg_type, payload_size, request_id, flag = struct.unpack(
+            HEADER_FMT, header_bytes
+        )
 
         if msg_class not in VALID_MSG_CLASSES:
             continue
@@ -80,22 +94,17 @@ def recv_header_synced(sock: socket.socket) -> bytes:
             continue
         if payload_size > 1024 * 1024:
             continue
-        # flag가 반드시 0이라면:
-        # if flag != 0: continue
 
-        return header_bytes       
+        return header_bytes
 
 
 def recv_packet(sock: socket.socket):
     header_bytes = recv_header_synced(sock)
 
-    #print(f"[DEBUG] header_raw: {header_bytes.hex()}")
-
     header_type, msg_class, msg_type, payload_size, request_id, flag = struct.unpack(
         HEADER_FMT, header_bytes
     )
 
-    # payload_size sanity check (폭주 방지)
     if payload_size < 0 or payload_size > 1024 * 1024:
         raise ValueError(f"Invalid payload_size: {payload_size}")
 
@@ -117,8 +126,6 @@ def build_header(msg_class: int, msg_type: int, payload_size: int, request_id: i
 
 # =========================
 # FixedStepCommand (0x1200)
-# request payload: uint32 step_count
-# response payload: ResultCode (uint32 result_code, uint32 detail_code)
 # =========================
 def send_fixed_step(sock: socket.socket, request_id: int, step_count: int):
     payload = struct.pack("<I", step_count)  # uint32
@@ -126,17 +133,20 @@ def send_fixed_step(sock: socket.socket, request_id: int, step_count: int):
     sock.sendall(header + payload)
     print(f"[SEND][TCP] FixedStepCommand(0x1200) request_id={request_id}, step_count={step_count}")
 
+
 def send_get_status(sock: socket.socket, request_id: int):
-    payload = b""  # No payload
+    payload = b""
     header = build_header(MSG_CLASS_REQ, MSG_TYPE_GET_STATUS, len(payload), request_id, FLAG)
     sock.sendall(header + payload)
     print(f"[SEND][TCP] GetStatusCommand(0x1201) request_id={request_id}")
 
+
 def send_save_data(sock: socket.socket, request_id: int):
-    payload = b""  # No payload
+    payload = b""
     header = build_header(MSG_CLASS_REQ, MSG_TYPE_SAVE_DATA, len(payload), request_id, FLAG)
     sock.sendall(header + payload)
     print(f"[SEND][TCP] SaveDataCommand(0x1101) request_id={request_id}")
+
 
 def parse_result_code(payload: bytes):
     if len(payload) != RESULT_SIZE:
@@ -146,7 +156,6 @@ def parse_result_code(payload: bytes):
 
 # =========================
 # ManualCommand (UDP, no header)
-# payload: float throttle, float brake, float steer
 # =========================
 def send_manual_udp(udp_sock: socket.socket, throttle: float, brake: float, steer: float):
     payload = struct.pack(MANUAL_FMT, throttle, brake, steer)
@@ -158,16 +167,13 @@ def send_manual_udp(udp_sock: socket.socket, throttle: float, brake: float, stee
     print(f"[SEND][UDP] ManualCommand -> {UDP_IP}:{UDP_PORT} "
           f"(throttle={throttle:.3f}, brake={brake:.3f}, steer={steer:.3f}) "
           f"size={len(payload)}B")
-    
+
 
 def parse_get_status_payload(payload: bytes):
     if len(payload) != GET_STATUS_PAYLOAD_SIZE:
         return None
 
-    # ResultCode (8B)
     result_code, detail_code = struct.unpack_from(RESULT_FMT, payload, 0)
-
-    # Status (24B)
     fixed_delta, step_index, seconds, nanos = struct.unpack_from(STATUS_FMT, payload, RESULT_SIZE)
 
     return {
@@ -178,6 +184,101 @@ def parse_get_status_payload(payload: bytes):
         "seconds": seconds,
         "nanos": nanos,
     }
+
+
+# =========================
+# Vehicle Info (UDP Receiver, no header)
+# =========================
+def parse_vehicle_info_payload(data: bytes):
+    if len(data) < VEHICLE_INFO_SIZE:
+        return None
+
+    seconds, nanos, raw_id, *floats = struct.unpack(VEHICLE_INFO_FMT, data[:VEHICLE_INFO_SIZE])
+
+    vehicle_id = raw_id.split(b"\x00", 1)[0].decode("utf-8", errors="ignore")
+
+    # floats[0:3] location, [3:6] rotation, [6:9] vel, [9:12] accel, [12:15] ang_vel, [15:18] control
+    loc = floats[0:3]
+    rot = floats[3:6]
+    vel = floats[6:9]
+    acc = floats[9:12]
+    ang = floats[12:15]
+    ctrl = floats[15:18]
+
+    return {
+        "seconds": seconds,
+        "nanos": nanos,
+        "id": vehicle_id,
+        "location": {"x": loc[0], "y": loc[1], "z": loc[2]},
+        "rotation": {"x": rot[0], "y": rot[1], "z": rot[2]},
+        "local_velocity": {"x": vel[0], "y": vel[1], "z": vel[2]},
+        "local_acceleration": {"x": acc[0], "y": acc[1], "z": acc[2]},
+        "angular_velocity": {"x": ang[0], "y": ang[1], "z": ang[2]},
+        "control": {"throttle": ctrl[0], "brake": ctrl[1], "steer_angle": ctrl[2]},
+        "raw_size": len(data),
+    }
+
+
+class VehicleInfoReceiver(threading.Thread):
+    """
+    UDP 수신 전용(9092).
+    - 너무 자주 찍히면 보기 힘드니 rate-limit(기본 0.2s)
+    - 패킷이 들어올 때만 출력
+    """
+    def __init__(self, udp_sock: socket.socket, print_interval_sec: float = 0.2):
+        super().__init__(daemon=True)
+        self.udp_sock = udp_sock
+        self.running = True
+        self.print_interval_sec = print_interval_sec
+        self._last_print_t = 0.0
+
+    def stop(self):
+        self.running = False
+
+    def run(self):
+        while self.running:
+            try:
+                data, addr = self.udp_sock.recvfrom(2048)  # 108B이므로 여유 있게
+                parsed = parse_vehicle_info_payload(data)
+
+                now = time.time()
+                if parsed is None:
+                    # 크기/구조가 다르면 디버그 용으로 최소 정보만
+                    if now - self._last_print_t >= self.print_interval_sec:
+                        self._last_print_t = now
+                        print(f"[RECV][UDP][VehicleInfo] from={addr} invalid_size={len(data)} "
+                              f"(expected>={VEHICLE_INFO_SIZE})")
+                    continue
+
+                # rate-limit 출력
+                if now - self._last_print_t < self.print_interval_sec:
+                    continue
+                self._last_print_t = now
+
+                loc = parsed["location"]
+                vel = parsed["local_velocity"]
+                ctrl = parsed["control"]
+
+                print(f"[RECV][UDP][VehicleInfo:{VEHICLE_INFO_PORT}] id='{parsed['id']}' "
+                      f"time={parsed['seconds']}s {parsed['nanos']}ns size={parsed['raw_size']}B")
+                print(f"    loc=({loc['x']:.3f}, {loc['y']:.3f}, {loc['z']:.3f}) "
+                      f"vel=({vel['x']:.3f}, {vel['y']:.3f}, {vel['z']:.3f}) "
+                      f"ctrl=(thr={ctrl['throttle']:.3f}, brk={ctrl['brake']:.3f}, steer={ctrl['steer_angle']:.3f})")
+                print("")
+
+            except OSError as e:
+                if self.running:
+                    print(f"[UDP-VEHICLE-THREAD] stopped: {e}")
+                break
+
+
+def print_key_bindings():
+    print("Press [1] : Send FixedStepCommand(0x1200) via TCP")
+    print("Press [2] : Send ManualCommand (24 bytes, no header) via UDP")
+    print("Press [3] : Send Get Fixed Mode Status Command(0x1201) via TCP")
+    print("Press [4] : Send Save Data Command(0x1101) via TCP")
+    print(f"(UDP Vehicle Info Receiver running on port {VEHICLE_INFO_PORT}, no key needed)")
+    print("Press [Q] : Quit\n")
 
 
 # =========================
@@ -201,7 +302,7 @@ class Receiver(threading.Thread):
 
                 print(f"[RECV][TCP] msg_type=0x{msg_type:04X} "
                       f"request_id={request_id} payload_size={payload_size}")
-                
+
                 if msg_class == MSG_CLASS_RESP and msg_type == MSG_TYPE_SAVE_DATA:
                     rc = parse_result_code(payload)
                     if rc is None:
@@ -210,7 +311,6 @@ class Receiver(threading.Thread):
                         result_code, detail_code = rc
                         print(f"           SaveData ResultCode: result_code={result_code} detail_code={detail_code}")
 
-                # 0x1200 응답 처리
                 if msg_class == MSG_CLASS_RESP and msg_type == MSG_TYPE_FIXED_STEP:
                     rc = parse_result_code(payload)
                     if rc is None:
@@ -219,8 +319,6 @@ class Receiver(threading.Thread):
                         result_code, detail_code = rc
                         print(f"           ResultCode: result_code={result_code} detail_code={detail_code}")
 
-                
-                # 0x1201 응답 처리 (ResultCode + Status)
                 if msg_class == MSG_CLASS_RESP and msg_type == MSG_TYPE_GET_STATUS:
                     parsed = parse_get_status_payload(payload)
                     if parsed is None:
@@ -232,7 +330,6 @@ class Receiver(threading.Thread):
                               f"step_index={parsed['step_index']} "
                               f"sim_time={parsed['seconds']}s {parsed['nanos']}ns")
 
-                # pending 정리 (요청/응답 매칭)
                 with self.lock:
                     if request_id in self.pending:
                         sent_time = self.pending.pop(request_id)
@@ -243,37 +340,74 @@ class Receiver(threading.Thread):
 
                 print("")
 
-        except Exception as e:
+        except (ConnectionError, OSError) as e:
             print(f"[RECV-THREAD] stopped: {e}")
+            self.running = False
+
+            global tcp_sock, receiver
+            tcp_sock.close()
+            tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            tcp_sock, receiver = reconnect(tcp_sock, receiver, self.pending, self.lock)
+
+
+def reconnect(tcp_sock, receiver, pending, lock):
+    while True:
+        try:
+            print("[INFO] Attempting to reconnect...")
+            time.sleep(5)
+            tcp_sock.connect((TCP_SERVER_IP, TCP_SERVER_PORT))
+            print("[INFO] Reconnected to the server.")
+
+            receiver = Receiver(tcp_sock, pending, lock)
+            receiver.start()
+
+            print_key_bindings()
+            return tcp_sock, receiver
+
+        except ConnectionRefusedError as e:
+            print(f"[ERROR] Reconnection failed: {e}. Retrying in 5 seconds...")
+        except Exception as e:
+            print(f"[ERROR] Unexpected error during reconnection: {e}. Retrying in 5 seconds...")
+        time.sleep(5)
 
 
 # =========================
 # Main (Windows)
 # =========================
-def main():
-    # TCP connect (Fixed Step Mode Control)
-    tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    tcp_sock.connect((TCP_SERVER_IP, TCP_SERVER_PORT))
+global tcp_sock, receiver
 
-    # UDP socket (Manual Command)
-    udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+def main():
+    global tcp_sock, receiver
+
+    tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+    udp_send_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+    # Vehicle Info UDP recv socket
+    udp_vehicle_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    udp_vehicle_sock.bind((VEHICLE_INFO_IP, VEHICLE_INFO_PORT))
 
     pending = {}
     lock = threading.Lock()
 
-    receiver = Receiver(tcp_sock, pending, lock)
-    receiver.start()
+    # start UDP vehicle receiver
+    vehicle_receiver = VehicleInfoReceiver(udp_vehicle_sock, print_interval_sec=0.2)
+    vehicle_receiver.start()
+
+    try:
+        tcp_sock.connect((TCP_SERVER_IP, TCP_SERVER_PORT))
+        receiver = Receiver(tcp_sock, pending, lock)
+        receiver.start()
+        print("Connected.")
+    except Exception as e:
+        print(f"[ERROR] Initial connection failed: {e}")
+        tcp_sock, receiver = reconnect(tcp_sock, None, pending, lock)
 
     request_id = 1
 
-    print("Connected.")
-    print("Press [1] : Send FixedStepCommand(0x1200) via TCP")
-    print("Press [2] : Send ManualCommand (24 bytes, no header) via UDP")
-    print("Press [3] : Send Get Fixed Mode Status Command(0x1201) via TCP")
-    print("Press [4] : Send Save Data Command(0x1101) via TCP")
-    print("Press [Q] : Quit\n")
+    print_key_bindings()
 
-    # 기본 Manual 값 (원하면 여기만 바꿔도 됨)
     manual_throttle = 1.0
     manual_brake = 0.0
     manual_steer = 0.0
@@ -286,41 +420,69 @@ def main():
                 if key == "q":
                     break
 
-                if key == "1":
-                    step_count = 10
-                    with lock:
-                        # if len(pending) > 0:
-                        #     print("[INFO] Pending request exists. Wait for response before sending next FixedStepCommand.")
-                        #     continue
-                        pending[request_id] = time.time()
-                    send_fixed_step(tcp_sock, request_id, step_count)
-                    request_id += 1                
+                try:
+                    if key == "1":
+                        step_count = 1
+                        with lock:
+                            pending[request_id] = time.time()
+                        send_fixed_step(tcp_sock, request_id, step_count)
+                        request_id += 1
 
-                elif key == "2":
-                    # UDP는 request_id/pending/응답처리 없음
-                    send_manual_udp(udp_sock, manual_throttle, manual_brake, manual_steer)
+                    elif key == "2":
+                        send_manual_udp(udp_send_sock, manual_throttle, manual_brake, manual_steer)
 
-                elif key == "3":
-                    with lock:
-                        pending[request_id] = time.time()
-                    send_get_status(tcp_sock, request_id)
-                    request_id += 1
-                elif key == "4":
-                    with lock:
-                        pending[request_id] = time.time()
-                    send_save_data(tcp_sock, request_id)
-                    request_id += 1
+                    elif key == "3":
+                        with lock:
+                            pending[request_id] = time.time()
+                        send_get_status(tcp_sock, request_id)
+                        request_id += 1
+
+                    elif key == "4":
+                        with lock:
+                            pending[request_id] = time.time()
+                        send_save_data(tcp_sock, request_id)
+                        request_id += 1
+
+                except (ConnectionError, OSError):
+                    print("[ERROR] Connection lost. Attempting to reconnect...")
+                    tcp_sock.close()
+                    tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    tcp_sock, receiver = reconnect(tcp_sock, receiver, pending, lock)
 
             time.sleep(0.01)
 
     finally:
-        receiver.stop()
+        # stop threads
+        try:
+            receiver.stop()
+        except Exception:
+            pass
+
+        try:
+            vehicle_receiver.stop()
+        except Exception:
+            pass
+
+        # close sockets
         try:
             tcp_sock.shutdown(socket.SHUT_RDWR)
         except Exception:
             pass
-        tcp_sock.close()
-        udp_sock.close()
+        try:
+            tcp_sock.close()
+        except Exception:
+            pass
+
+        try:
+            udp_send_sock.close()
+        except Exception:
+            pass
+
+        try:
+            udp_vehicle_sock.close()
+        except Exception:
+            pass
+
         print("Disconnected.")
 
 
