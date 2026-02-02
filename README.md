@@ -19,11 +19,8 @@ Unreal 기반 시뮬레이터(또는 유사 서버)에 대해:
 
 ### UDP (Manual)
 - 헤더 없음
-- payload: `throttle, brake, steer` (`float64 x 3` = 24 bytes)
+- payload: `throttle, brake, steer` (`double x 3` = 24 bytes)
 - 결과 응답을 기다리지 않음 (fire-and-forget)
-
-> Note: ManualCommand uses `float64` by default.  
-> If your server expects `float32` (12 bytes), change `MANUAL_FMT` to `<fff>`.
 
 ### 기타
 - TCP 수신은 **MAGIC(0x4D)** 기반으로 헤더 동기화(resync)
