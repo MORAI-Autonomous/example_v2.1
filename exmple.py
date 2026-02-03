@@ -273,9 +273,9 @@ class VehicleInfoReceiver(threading.Thread):
 
 
 def print_key_bindings():
-    print("Press [1] : Send FixedStepCommand(0x1200) via TCP")
-    print("Press [2] : Send ManualCommand (24 bytes, no header) via UDP")
-    print("Press [3] : Send Get Fixed Mode Status Command(0x1201) via TCP")
+    print("Press [1] : Send ManualCommand (24 bytes, no header) via UDP")
+    print("Press [2] : Send Get Fixed Mode Status Command(0x1201) via TCP")
+    print("Press [3] : Send FixedStepCommand(0x1200) via TCP")        
     print("Press [4] : Send Save Data Command(0x1101) via TCP")
     print(f"(UDP Vehicle Info Receiver running on port {VEHICLE_INFO_PORT}, no key needed)")
     print("Press [Q] : Quit\n")
@@ -429,7 +429,7 @@ def main():
                             pending[request_id] = time.time()
                         send_get_status(tcp_sock, request_id)
                         request_id += 1
-                        
+
                     if key == "3":
                         step_count = 1
                         with lock:
