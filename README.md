@@ -13,7 +13,7 @@ Unreal 기반 시뮬레이터(또는 유사 서버)에 대해:
 ## Features
 
 ### TCP (Control)
-- `0x1200` **FixedStepCommand**: step_count (`uint32`) 전송
+- `0x1200` **FixedStepCommand**: step_count 전송 (응답: ResultCode)
 - `0x1201` **GetStatusCommand**: payload 없음 (응답: ResultCode + Status)
 - `0x1101` **SaveDataCommand**: payload 없음 (응답: ResultCode)
 
@@ -36,7 +36,7 @@ Unreal 기반 시뮬레이터(또는 유사 서버)에 대해:
 
 | Field | Type | Size |
 |---|---:|---:|
-| header_type (MAGIC) | uint8 | 1 |
+| magic_number (MAGIC) | uint8 | 1 |
 | msg_class | uint8 | 1 |
 | msg_type | uint32 | 4 |
 | payload_size | uint32 | 4 |
@@ -92,8 +92,8 @@ UDP_PORT = 9090
 
 | Key | Action                                                      |
 | --- | ----------------------------------------------------------- |
-| `1` | Send FixedStepCommand (TCP, msg_type=0x1200, step_count=10) |
-| `2` | Send ManualCommand (UDP, 24B payload)                       |
-| `3` | Send GetStatusCommand (TCP, msg_type=0x1201)                |
+| `1` | Send ManualCommand (UDP, 24B payload)                       |
+| `2` | Send GetStatusCommand (TCP, msg_type=0x1201)                |
+| `3` | Send FixedStepCommand (TCP, msg_type=0x1200, step_count=10) |
 | `4` | Send SaveDataCommand (TCP, msg_type=0x1101)                 |
 | `Q` | Quit                                                        |

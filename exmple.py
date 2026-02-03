@@ -35,7 +35,7 @@ MANUAL_SIZE = struct.calcsize(MANUAL_FMT)
 # =========================
 # Protocol (TCP header matches <BBIIIH)
 # =========================
-MAGIC = 0x4D
+MAGIC = 0x4D        # M
 
 MSG_CLASS_REQ = 0x01
 MSG_CLASS_RESP = 0x02
@@ -422,19 +422,19 @@ def main():
 
                 try:
                     if key == "1":
+                        send_manual_udp(udp_send_sock, manual_throttle, manual_brake, manual_steer)
+
+                    elif key == "2":
+                        with lock:
+                            pending[request_id] = time.time()
+                        send_get_status(tcp_sock, request_id)
+                        request_id += 1
+                        
+                    if key == "3":
                         step_count = 1
                         with lock:
                             pending[request_id] = time.time()
                         send_fixed_step(tcp_sock, request_id, step_count)
-                        request_id += 1
-
-                    elif key == "2":
-                        send_manual_udp(udp_send_sock, manual_throttle, manual_brake, manual_steer)
-
-                    elif key == "3":
-                        with lock:
-                            pending[request_id] = time.time()
-                        send_get_status(tcp_sock, request_id)
                         request_id += 1
 
                     elif key == "4":
