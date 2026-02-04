@@ -1,0 +1,44 @@
+{
+	"version": "1.0.0-alpha",
+	"createDate": "2026-02-01 00:38",
+	"interface":
+	{
+		"activate": true,
+		"recordEnabled": false,
+		"outputFormat": "CSV",
+		"name": "Manual Control",
+		"projectName": "MoraiProject_0",
+		"messageTemplateFileName": "Vehicle Manual Control",
+		"networkType": "UDP",
+		"hertz": 60,
+		"direction": "RECEIVE",
+		"hostAddr":
+		{
+			"ip": "127.0.0.1",
+			"port": 9090
+		},
+		"destinationAddr":
+		{
+			"ip": "",
+			"port": 0
+		},
+		"entityList": [
+			{
+				"id": "Car_1",
+				"name": "Car_1",
+				"descriptorName": ""
+			}
+		],
+		"recordRelationDataModelList": [],
+		"rosInfo":
+		{
+			"topicName": "",
+			"messageType": ""
+		},
+		"canInfo":
+		{
+			"id": "",
+			"name": ""
+		}
+	}
+}

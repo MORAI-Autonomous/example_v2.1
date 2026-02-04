@@ -1,0 +1,38 @@
+{
+	"version": "1.0.0-alpha",
+	"createDate": "2026-02-01 00:41",
+	"interface":
+	{
+		"activate": true,
+		"recordEnabled": false,
+		"outputFormat": "CSV",
+		"name": "Fixed Step Mode Control",
+		"projectName": "MoraiProject_0",
+		"messageTemplateFileName": "",
+		"networkType": "TCP",
+		"hertz": 60,
+		"direction": "SERVER",
+		"hostAddr":
+		{
+			"ip": "127.0.0.1",
+			"port": 9093
+		},
+		"destinationAddr":
+		{
+			"ip": "",
+			"port": 0
+		},
+		"entityList": [],
+		"recordRelationDataModelList": [],
+		"rosInfo":
+		{
+			"topicName": "",
+			"messageType": ""
+		},
+		"canInfo":
+		{
+			"id": "",
+			"name": ""
+		}
+	}
+}

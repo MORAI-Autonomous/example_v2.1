@@ -1,0 +1,71 @@
+<?xml version="1.0"?>
+<OpenSCENARIO xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <FileHeader author="Scenario Runner" date="2026-02-01T00:37:22.964Z" description="Untitled Scenario" revMajor="1" revMinor="2" />
+  <ParameterDeclarations />
+  <VariableDeclarations>
+    <VariableDeclaration name="moraiMap" value="Sangam Track" variableType="String" />
+  </VariableDeclarations>
+  <CatalogLocations />
+  <RoadNetwork>
+    <LogicFile filepath="MGeo" />
+  </RoadNetwork>
+  <Entities>
+    <ScenarioObject name="Car_1">
+      <Vehicle mass="0.0" model3d="MA Formula 4" name="Car_1" role="none" vehicleCategory="car">
+        <BoundingBox>
+          <Center x="1.3925" y="0.0" z="0.0" />
+          <Dimensions height="1.545" length="4.355" width="1.805" />
+        </BoundingBox>
+        <Performance maxAcceleration="0.0" maxAccelerationRate="0.0" maxDeceleration="0.0" maxDecelerationRate="0.0" maxSpeed="0.0" />
+        <Axles>
+          <FrontAxle maxSteering="0.0" positionX="2.7" positionZ="0.0" trackWidth="0.0" wheelDiameter="0.0" />
+          <RearAxle maxSteering="0.0" positionX="0.0" positionZ="0.0" trackWidth="0.0" wheelDiameter="0.0" />
+        </Axles>
+        <Properties />
+      </Vehicle>
+    </ScenarioObject>
+  </Entities>
+  <Storyboard>
+    <Init>
+      <Actions>
+        <Private entityRef="Car_1">
+          <PrivateAction>
+            <TeleportAction>
+              <Position>
+                <WorldPosition x="1066.732416" y="-1651.937734" z="3.142316" h="0.923171" p="-0.004617" r="0.026024" />
+              </Position>
+            </TeleportAction>
+          </PrivateAction>
+          <PrivateAction>
+            <LongitudinalAction>
+              <SpeedAction>
+                <SpeedActionTarget>
+                  <AbsoluteTargetSpeed value="0.0" />
+                </SpeedActionTarget>
+                <SpeedActionDynamics dynamicsDimension="time" dynamicsShape="step" value="0" />
+              </SpeedAction>
+            </LongitudinalAction>
+          </PrivateAction>
+        </Private>
+      </Actions>
+    </Init>
+    <Story name="new_story">
+      <Act name="new_act">
+        <ManeuverGroup name="new_maneuverGroup" maximumExecutionCount="1">
+          <Actors selectTriggeringEntities="false" />
+        </ManeuverGroup>
+        <StartTrigger>
+          <ConditionGroup>
+            <Condition name="true_condition" delay="0" conditionEdge="none">
+              <ByValueCondition>
+                <SimulationTimeCondition rule="greaterThan" value="0" />
+              </ByValueCondition>
+            </Condition>
+          </ConditionGroup>
+        </StartTrigger>
+        <StopTrigger />
+      </Act>
+    </Story>
+    <StopTrigger />
+  </Storyboard>
+</OpenSCENARIO>

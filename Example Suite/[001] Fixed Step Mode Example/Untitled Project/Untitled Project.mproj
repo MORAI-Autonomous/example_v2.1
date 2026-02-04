@@ -1,0 +1,194 @@
+{
+	"map":
+	{
+		"type": "Standard",
+		"name": "Sangam Track",
+		"id": 100007,
+		"originFrame":
+		{
+			"position":
+			{
+				"x": 0,
+				"y": 0,
+				"z": 0
+			}
+		}
+	},
+	"sensorList": [
+		{
+			"frameRate": 50,
+			"resolutionX": 640,
+			"resolutionY": 480,
+			"focalLength": 320,
+			"focusDistance": 10,
+			"principalPointX": 320,
+			"principalPointY": 240,
+			"distortionCoefficient_K1": 0,
+			"distortionCoefficient_K2": 0,
+			"distortionCoefficient_K3": 0,
+			"distortionCoefficient_P1": 0,
+			"distortionCoefficient_P2": 0,
+			"apertureDiameter": 0,
+			"apertureBladeCount": 0,
+			"fStop": 0,
+			"sensorSizeX": 0,
+			"sensorSizeY": 0,
+			"shutterSpeed": 0,
+			"iSOSensitivity": 30000,
+			"depthOfField": false,
+			"depthOfFieldBlurRadius": 10,
+			"autoExposure": true,
+			"motionBlur": false,
+			"motionBlurIntensity": 0.5,
+			"chromaticAberration": false,
+			"chromaticAberrationIntensity": 0.60000002384185791,
+			"bloom": false,
+			"bloomIntensity": 0.5,
+			"lensFlare": false,
+			"lensFlareIntensity": 0.5,
+			"bBOX_2D": false,
+			"bBOX_3D": false,
+			"imageType_Raw": true,
+			"imageType_Semantic": false,
+			"imageType_Instance": false,
+			"imageType_Depth": false,
+			"sensorName": "Camera_1",
+			"sensorType": "BP_SensorCamera_C",
+			"optionId": 500001,
+			"parentFrame": "Car_1",
+			"bInfraSensor": false,
+			"sensorTransform":
+			{
+				"rotation":
+				{
+					"x": 0,
+					"y": 8.6736173798840355e-19,
+					"z": 0,
+					"w": 0.99999999999999989
+				},
+				"translation":
+				{
+					"x": 4.6353698657242148e-11,
+					"y": -5.4736215560069468e-12,
+					"z": 149.9999999999998
+				},
+				"scale3D":
+				{
+					"x": 1,
+					"y": 1,
+					"z": 1
+				}
+			}
+		}
+	],
+	"kineticsModelList": [
+		{
+			"modelName": "None",
+			"type": "Standard",
+			"optionId": 0,
+			"parentName": "Car_1",
+			"dynamicType": "Dynamics",
+			"body":
+			{
+				"mass": 0,
+				"id": 0,
+				"dragCoeff": 0,
+				"ineritaTensorScale": 0,
+				"centerOfMass":
+				{
+					"bEnable": false,
+					"position":
+					{
+						"x": 0,
+						"y": 0,
+						"z": 0
+					}
+				}
+			},
+			"steer":
+			{
+				"maxAngle": 0
+			},
+			"brake":
+			{
+				"maxTorque": 0
+			}
+		}
+	],
+	"DynamicsCustomData": [
+		{
+			"ObjectName": "Car_1",
+			"vehicleSetup":
+			{
+				"mass": 550,
+				"centerOfMassOverride":
+				{
+					"x": 90.209999999999994,
+					"y": 0,
+					"z": 15
+				},
+				"dragCoefficient": 0.69999998807907104,
+				"inertiaTensorScale":
+				{
+					"x": 1.47,
+					"y": 2.5699999999999998,
+					"z": 2.2999999999999998
+				},
+				"maxBrakeTorque": 500
+			},
+			"axle1":
+			{
+				"maxSteerAngle": 25,
+				"wheelPosition": 235.00001525878906,
+				"trackWidth": 147.39998626708984,
+				"wheelDiameter": 55,
+				"wheelMass": 20
+			},
+			"axle2":
+			{
+				"maxSteerAngle": 0,
+				"wheelPosition": 0,
+				"trackWidth": 146.30000305175781,
+				"wheelDiameter": 57,
+				"wheelMass": 20
+			}
+		}
+	],
+	"AgentModels": [
+		{
+			"maxAcceleration": 2,
+			"comfortDeceleration": 1.5,
+			"minDistance": 1,
+			"timeGap": 1.2000000476837158,
+			"desiredSpeed": 33.299999237060547,
+			"accelerationExponent": 4,
+			"carFollowingModel": "Idm",
+			"agentName": "Car_1",
+			"group": "LongitudinalCarFollowing"
+		}
+	],
+	"scenarioList": [
+		{
+			"name": "Untitled Scenario",
+			"path": "Untitled Scenario.xosc"
+		}
+	],
+	"interfaceList": [
+		{
+			"name": "Manual Control",
+			"path": "Manual Control.json"
+		},
+		{
+			"name": "Cam 01",
+			"path": "Cam 01.json"
+		},
+		{
+			"name": "Vehicle Info",
+			"path": "Vehicle Info.json"
+		},
+		{
+			"name": "Fixed Step Mode Control",
+			"path": "Fixed Step Mode Control.json"
+		}
+	]
+}

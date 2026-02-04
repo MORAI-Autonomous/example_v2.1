@@ -1,0 +1,11 @@
+{
+	"versionFormat": [ 1, 0 ],
+	"name": "SUT Example 003",
+	"versionSimulator": [],
+	"projectList": [
+		{
+			"name": "Untitled Project",
+			"filepath": "Untitled Project/Untitled Project.mproj"
+		}
+	]
+}

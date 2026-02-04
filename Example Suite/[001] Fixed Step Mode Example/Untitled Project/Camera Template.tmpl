@@ -1,0 +1,31 @@
+{
+	"version": "1.0.0-alpha",
+	"messageTemplate":
+	{
+		"name": "Camera Template",
+		"isControl": false,
+		"isSensor": true,
+		"description": "",
+		"segmentList": [
+			{
+				"type": "FIELDS",
+				"relationName": "CameraEntity",
+				"fieldList": [
+					{
+						"name": "image size",
+						"relationName": "CameraEntity",
+						"variableName": "camera_attributes.camera_sensor_data.image_size",
+						"variableType": "INT32"
+					},
+					{
+						"name": "image datas",
+						"relationName": "CameraEntity",
+						"variableName": "camera_attributes.camera_sensor_data.image_data",
+						"variableType": "BYTES",
+						"fieldOutputFormat": "JPG"
+					}
+				]
+			}
+		]
+	}
+}

@@ -1,0 +1,36 @@
+{
+	"version": "1.0.0-alpha",
+	"messageTemplate":
+	{
+		"name": "Vehicle Manual Control",
+		"isControl": true,
+		"isSensor": false,
+		"description": "",
+		"segmentList": [
+			{
+				"type": "FIELDS",
+				"relationName": "ManualControl",
+				"fieldList": [
+					{
+						"name": "throttle",
+						"relationName": "ManualControl",
+						"variableName": "throttle",
+						"variableType": "DOUBLE"
+					},
+					{
+						"name": "brake",
+						"relationName": "ManualControl",
+						"variableName": "brake",
+						"variableType": "DOUBLE"
+					},
+					{
+						"name": "steering wheel angle",
+						"relationName": "ManualControl",
+						"variableName": "steering_wheel_angle",
+						"variableType": "DOUBLE"
+					}
+				]
+			}
+		]
+	}
+}

@@ -1,0 +1,44 @@
+{
+	"version": "1.0.0-alpha",
+	"createDate": "2026-02-01 00:40",
+	"interface":
+	{
+		"activate": true,
+		"recordEnabled": true,
+		"outputFormat": "CSV",
+		"name": "Cam 01",
+		"projectName": "MoraiProject_0",
+		"messageTemplateFileName": "Camera Template",
+		"networkType": "UDP",
+		"hertz": 30,
+		"direction": "SEND",
+		"hostAddr":
+		{
+			"ip": "",
+			"port": 0
+		},
+		"destinationAddr":
+		{
+			"ip": "127.0.0.1",
+			"port": 9091
+		},
+		"entityList": [
+			{
+				"id": "Camera_1",
+				"name": "Camera_1",
+				"descriptorName": ""
+			}
+		],
+		"recordRelationDataModelList": [],
+		"rosInfo":
+		{
+			"topicName": "",
+			"messageType": ""
+		},
+		"canInfo":
+		{
+			"id": "",
+			"name": ""
+		}
+	}
+}

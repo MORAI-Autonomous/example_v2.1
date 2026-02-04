@@ -1,0 +1,145 @@
+{
+	"version": "1.0.0-alpha",
+	"messageTemplate":
+	{
+		"name": "Vehicle Info",
+		"isControl": false,
+		"isSensor": false,
+		"description": "",
+		"segmentList": [
+			{
+				"type": "FIELDS",
+				"relationName": "GroundVehicleEntity",
+				"fieldList": [
+					{
+						"name": "seconds",
+						"relationName": "GroundVehicleEntity",
+						"variableName": "time_stamp.seconds",
+						"variableType": "INT64"
+					},
+					{
+						"name": "nanos",
+						"relationName": "GroundVehicleEntity",
+						"variableName": "time_stamp.nanos",
+						"variableType": "INT32"
+					},
+					{
+						"name": "id",
+						"relationName": "GroundVehicleEntity",
+						"variableName": "id",
+						"variableType": "STRING",
+						"length": 24
+					},
+					{
+						"name": "x",
+						"relationName": "GroundVehicleEntity",
+						"variableName": "ground_vehicle_attributes.chassis_attributes.transform.location.x",
+						"variableType": "FLOAT"
+					},
+					{
+						"name": "y",
+						"relationName": "GroundVehicleEntity",
+						"variableName": "ground_vehicle_attributes.chassis_attributes.transform.location.y",
+						"variableType": "FLOAT"
+					},
+					{
+						"name": "z",
+						"relationName": "GroundVehicleEntity",
+						"variableName": "ground_vehicle_attributes.chassis_attributes.transform.location.z",
+						"variableType": "FLOAT"
+					},
+					{
+						"name": "x",
+						"relationName": "GroundVehicleEntity",
+						"variableName": "ground_vehicle_attributes.chassis_attributes.transform.rotation.x",
+						"variableType": "FLOAT"
+					},
+					{
+						"name": "y",
+						"relationName": "GroundVehicleEntity",
+						"variableName": "ground_vehicle_attributes.chassis_attributes.transform.rotation.y",
+						"variableType": "FLOAT"
+					},
+					{
+						"name": "z",
+						"relationName": "GroundVehicleEntity",
+						"variableName": "ground_vehicle_attributes.chassis_attributes.transform.rotation.z",
+						"variableType": "FLOAT"
+					},
+					{
+						"name": "x",
+						"relationName": "GroundVehicleEntity",
+						"variableName": "ground_vehicle_attributes.chassis_attributes.local_velocity.x",
+						"variableType": "FLOAT"
+					},
+					{
+						"name": "y",
+						"relationName": "GroundVehicleEntity",
+						"variableName": "ground_vehicle_attributes.chassis_attributes.local_velocity.y",
+						"variableType": "FLOAT"
+					},
+					{
+						"name": "z",
+						"relationName": "GroundVehicleEntity",
+						"variableName": "ground_vehicle_attributes.chassis_attributes.local_velocity.z",
+						"variableType": "FLOAT"
+					},
+					{
+						"name": "x",
+						"relationName": "GroundVehicleEntity",
+						"variableName": "ground_vehicle_attributes.chassis_attributes.local_acceleration.x",
+						"variableType": "FLOAT"
+					},
+					{
+						"name": "y",
+						"relationName": "GroundVehicleEntity",
+						"variableName": "ground_vehicle_attributes.chassis_attributes.local_acceleration.y",
+						"variableType": "FLOAT"
+					},
+					{
+						"name": "z",
+						"relationName": "GroundVehicleEntity",
+						"variableName": "ground_vehicle_attributes.chassis_attributes.local_acceleration.z",
+						"variableType": "FLOAT"
+					},
+					{
+						"name": "x",
+						"relationName": "GroundVehicleEntity",
+						"variableName": "ground_vehicle_attributes.chassis_attributes.angular_velocity.x",
+						"variableType": "FLOAT"
+					},
+					{
+						"name": "y",
+						"relationName": "GroundVehicleEntity",
+						"variableName": "ground_vehicle_attributes.chassis_attributes.angular_velocity.y",
+						"variableType": "FLOAT"
+					},
+					{
+						"name": "z",
+						"relationName": "GroundVehicleEntity",
+						"variableName": "ground_vehicle_attributes.chassis_attributes.angular_velocity.z",
+						"variableType": "FLOAT"
+					},
+					{
+						"name": "throttle",
+						"relationName": "GroundVehicleEntity",
+						"variableName": "ground_vehicle_attributes.vehicle_control_attributes.throttle",
+						"variableType": "FLOAT"
+					},
+					{
+						"name": "brake",
+						"relationName": "GroundVehicleEntity",
+						"variableName": "ground_vehicle_attributes.vehicle_control_attributes.brake",
+						"variableType": "FLOAT"
+					},
+					{
+						"name": "steer_angle",
+						"relationName": "GroundVehicleEntity",
+						"variableName": "ground_vehicle_attributes.vehicle_control_attributes.steer_angle",
+						"variableType": "FLOAT"
+					}
+				]
+			}
+		]
+	}
+}
