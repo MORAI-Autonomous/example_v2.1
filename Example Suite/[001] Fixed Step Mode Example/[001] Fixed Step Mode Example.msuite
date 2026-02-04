@@ -1,0 +1,11 @@
+{
+	"versionFormat": [ 1, 0 ],
+	"name": "[001] Fixed Step Mode Example",
+	"versionSimulator": [],
+	"projectList": [
+		{
+			"name": "Fixed Step Mode Example Project 01",
+			"filepath": "Fixed Step Mode Example Project 01/Fixed Step Mode Example Project 01.mproj"
+		}
+	]
+}
