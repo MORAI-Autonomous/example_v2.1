@@ -368,7 +368,6 @@ def reconnect(tcp_sock, receiver, pending, lock):
             print(f"[ERROR] Reconnection failed: {e}. Retrying in 5 seconds...")
         except Exception as e:
             print(f"[ERROR] Unexpected error during reconnection: {e}. Retrying in 5 seconds...")
-        time.sleep(5)
 
 
 # =========================
