@@ -1,10 +1,10 @@
 # Fixed-Step Mode Control Example
 
-- **TCP**로 모라이 시뮬레이터의 Fixed Step Mode 를 제어 할 수 있습니다. 
-- **UDP**로 모라이 시뮬레이터에 설정한 사용자 Interface와 연결합니다. 
-- **UDP**로 Vehicle Info 데이터를 수신할 수 있습니다.
+- **TCP**로 Fixed Step Mode를 제어 할 수 있습니다. 
+- **UDP**로 시뮬레이터에 설정한 사용자 Interface와 연결하여 데이타를 송/수신 합니다. (Manual Command, Vehicle Info)
+- 본 예제 프로그램과 연동되어 실행해 볼 수 있는 예제 Suite가 포함되어 있습니다. 
+- [001] Fixed Step Mode Example 폴더에 있는 Suite를 모라이 시뮬레이터에서 불러온 후 플레이 하면 본 예제 프로그램과 연동할 수 있습니다. 
 
-키 입력으로 커맨드를 보내고, TCP 응답은 별도 수신 스레드에서 파싱/출력합니다.
 
 ---
 
