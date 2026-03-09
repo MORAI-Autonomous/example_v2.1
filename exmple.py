@@ -6,7 +6,8 @@ import tcp_transport as tcp
 import tcp_thread as tcp_thread
 import automation as ac
 import key_input as key_input
-import manual_command as manual_command
+import commands as commands
+import input_helper as prompt
 
 # =========================
 # Pending (request sync)
@@ -49,7 +50,11 @@ def print_key_bindings():
     print("Press [2] : Send GetStatus (TCP 0x1201)")
     print("Press [3] : Send FixedStep (TCP 0x1200)")
     print("Press [4] : Send SaveData (TCP 0x1101)")
-    print(f"Press [5] : Toggle AutoCall (FixedStep <-> SaveData) x {MAX_CALL_NUM}")
+    print("Press [5] : Send Create Object (TCP 0x1103)")
+    print("Press [6] : Send ManualControlById (TCP 0x1104)")
+    print("Press [7] : Send TransformControlById (TCP 0x1105)")    
+    print("Press [8] : Send TransformControl (UDP)")
+    #print(f"Press [9] : Toggle AutoCall (FixedStep <-> SaveData) x {MAX_CALL_NUM}")
     print("Press [Q] : Quit\n")
 
 # =========================
@@ -77,12 +82,12 @@ def main():
     try:
         while True:
             key = key_input.get_key()
-            if key == "q":
+            if key in ("q", "Q"):
                 break
 
             try:
                 if key == "1":
-                    manual_command.send_manual_udp(
+                    commands.send_manual_udp(
                         udp_send_sock, manual_throttle, manual_brake, manual_steer
                     )
 
@@ -108,6 +113,34 @@ def main():
                     tcp.send_save_data(tcp_sock, rid)
 
                 elif key == "5":
+                    params = prompt.prompt_create_object()
+                    with lock:
+                        rid = request_id_ref["value"]
+                        request_id_ref["value"] += 1
+                    pending_add(pending, lock, rid, MSG_TYPE_CREATE_OBJECT)
+                    tcp.send_create_object(tcp_sock, rid, **params)
+
+                elif key == "6":
+                    params = prompt.prompt_manual_control_by_id()
+                    with lock:
+                        rid = request_id_ref["value"]
+                        request_id_ref["value"] += 1
+                    pending_add(pending, lock, rid, MSG_TYPE_MANUAL_CONTROL_BY_ID_COMMAND)
+                    tcp.send_manual_control_by_id(tcp_sock, rid, **params)
+
+                elif key == "7":
+                    params = prompt.prompt_transform_control_by_id()
+                    with lock:
+                        rid = request_id_ref["value"]
+                        request_id_ref["value"] += 1
+                    pending_add(pending, lock, rid, MSG_TYPE_TRANSFORM_CONTROL_BY_ID_COMMAND)
+                    tcp.send_transform_control_by_id(tcp_sock, rid, **params)
+
+                elif key == "8":
+                    params = prompt.prompt_transform_control()
+                    commands.send_transform_control_udp(udp_send_sock, **params)
+
+                elif key == "9":
                     # Toggle AutoCaller
                     if auto_caller is None or not auto_caller.is_alive():
                         auto_caller = ac.AutoCaller(
@@ -126,6 +159,8 @@ def main():
                     else:
                         auto_caller.stop()
                         auto_caller = None
+                
+                
 
             except (ConnectionError, OSError) as e:
                 print(f"[ERROR] Connection lost: {e}")
