@@ -1,4 +1,3 @@
-# tcp_thread.py
 import threading
 
 import protocol_defs as proto
@@ -9,7 +8,8 @@ class Receiver(threading.Thread):
     """
     TCP 응답 수신 스레드.
     - tcp.recv_packet()으로 스트림 동기화 포함 수신
-    - GetStatus / CreateObject 응답 parse 후 출력
+    - GetStatus / CreateObject 응답은 전용 parse 후 출력
+    - 그 외 메시지는 General 로그로 출력
     - pending dict에 (request_id, msg_type) event를 set 해서 동기화 신호 제공
     """
     def __init__(self, sock, pending: dict, lock: threading.Lock):
@@ -29,9 +29,10 @@ class Receiver(threading.Thread):
 
                 print(
                     f"[RAW][TCP] class=0x{msg_class:02X} type=0x{msg_type:04X} "
-                    f"payload_size={payload_size} rid={request_id}"
+                    f"payload_size={payload_size} rid={request_id} flag={flag}"
                 )
 
+                # 전용 로그 1: GetStatus
                 if msg_class == proto.MSG_CLASS_RESP and msg_type == proto.MSG_TYPE_GET_STATUS:
                     parsed = tcp.parse_get_status_payload(payload)
                     if parsed is not None:
@@ -47,6 +48,7 @@ class Receiver(threading.Thread):
                             f"rid={request_id} payload_size={payload_size} raw={payload!r}"
                         )
 
+                # 전용 로그 2: CreateObject
                 elif msg_class == proto.MSG_CLASS_RESP and msg_type == proto.MSG_TYPE_CREATE_OBJECT:
                     parsed = tcp.parse_create_object_payload(payload)
                     if parsed is not None:
@@ -61,19 +63,13 @@ class Receiver(threading.Thread):
                             f"rid={request_id} payload_size={payload_size} raw={payload!r}"
                         )
 
-                elif msg_class == proto.MSG_CLASS_RESP and msg_type == proto.MSG_TYPE_MANUAL_CONTROL_BY_ID_COMMAND:
-                    parsed = tcp.parse_result_code(payload)
-                    if parsed is not None:
-                        result_code, detail_code = parsed
-                        print(
-                            f"[RECV][TCP][ManualControlById] rid={request_id} "
-                            f"result={result_code} detail={detail_code}"
-                        )
-                    else:
-                        print(
-                            f"[RECV][TCP][ManualControlById] parse failed "
-                            f"rid={request_id} payload_size={payload_size} raw={payload!r}"
-                        )
+                # 나머지 전체 공통 로그
+                else:
+                    print(
+                        f"[RECV][TCP][General] class=0x{msg_class:02X} "
+                        f"type=0x{msg_type:04X} rid={request_id} "
+                        f"payload_size={payload_size}"
+                    )
 
                 # pending sync signal
                 if msg_class == proto.MSG_CLASS_RESP:
@@ -85,4 +81,7 @@ class Receiver(threading.Thread):
 
         except (ConnectionError, OSError) as e:
             print(f"[RECV-THREAD] stopped: {e}")
+            self.running = False
+        except Exception as e:
+            print(f"[RECV-THREAD][UNEXPECTED] {type(e).__name__}: {e}")
             self.running = False
