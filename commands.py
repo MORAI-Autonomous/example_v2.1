@@ -4,7 +4,6 @@ import struct
 
 import protocol_defs as proto
 
-
 def send_manual_udp(
     udp_sock: socket.socket,
     throttle: float,

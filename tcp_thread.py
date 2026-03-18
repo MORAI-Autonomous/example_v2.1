@@ -4,11 +4,23 @@ import protocol_defs as proto
 import tcp_transport as tcp
 
 
+def result_to_string(code: int):
+    return proto.RESULT_CODE_MAP.get(code, f"UNKNOWN({code})")
+
+def time_mode_to_string(mode: int):
+    if mode == proto.TIME_MODE_VARIABLE:
+        return "VARIABLE"
+    if mode == proto.TIME_MODE_FIXED_DELTA:
+        return "FIXED_DELTA"
+    if mode == proto.TIME_MODE_FIXED_STEP:
+        return "FIXED_STEP"
+    return f"UNKNOWN({mode})"
+
 class Receiver(threading.Thread):
     """
     TCP 응답 수신 스레드.
     - tcp.recv_packet()으로 스트림 동기화 포함 수신
-    - GetStatus / CreateObject 응답은 전용 parse 후 출력
+    - GetStatus / CreateObject / SetSimulationTimeMode 응답은 전용 parse 후 출력
     - 그 외 메시지는 General 로그로 출력
     - pending dict에 (request_id, msg_type) event를 set 해서 동기화 신호 제공
     """
@@ -32,46 +44,117 @@ class Receiver(threading.Thread):
                     f"payload_size={payload_size} rid={request_id} flag={flag}"
                 )
 
-                # 전용 로그 1: GetStatus
-                if msg_class == proto.MSG_CLASS_RESP and msg_type == proto.MSG_TYPE_GET_STATUS:
-                    parsed = tcp.parse_get_status_payload(payload)
+                # =========================
+                # SetSimulationTimeModeCommand (0x1100)
+                # =========================
+                if (
+                    msg_class == proto.MSG_CLASS_RESP
+                    and msg_type == proto.MSG_TYPE_SET_SIMULATION_TIME_MODE_COMMAND
+                ):
+
+                    parsed = tcp.parse_set_simulation_time_mode_payload(payload)
+
                     if parsed is not None:
+                        result_str = result_to_string(parsed["result_code"])
+                        mode_str = time_mode_to_string(parsed["mode"])
+
+                        print(
+                            f"[RECV][TCP][SetSimulationTimeMode] rid={request_id} "
+                            f"result={parsed['result_code']}({result_str}) "
+                            f"detail={parsed['detail_code']} "
+                            f"mode={parsed['mode']}({mode_str}) "
+                            f"fixed_delta={parsed['fixed_delta']:.6f}"
+                            f" simulation_speed={parsed['simulation_speed']:.2f}"
+                        )
+                    else:
+                        print(
+                            f"[RECV][TCP][SetSimulationTimeMode] parse failed "
+                            f"rid={request_id} payload_size={payload_size}"
+                        )
+
+                # =========================
+                # GetStatus
+                # =========================
+                elif msg_class == proto.MSG_CLASS_RESP and msg_type == proto.MSG_TYPE_GET_SIMULATION_TIME_STATUS:
+
+                    parsed = tcp.parse_get_status_payload(payload)
+
+                    if parsed is not None:
+                        result_str = result_to_string(parsed["result_code"])
+                        mode_str = time_mode_to_string(parsed["mode"])
+
                         print(
                             f"[RECV][TCP][GetStatus] rid={request_id} "
+                            f"result={parsed['result_code']}({result_str}) "
+                            f"detail={parsed['detail_code']} "
+                            f"mode={parsed['mode']}({mode_str}) "
                             f"fixed_delta={parsed['fixed_delta']:.6f} "
+                            f"simulation_speed={parsed['simulation_speed']:.2f} "
                             f"step_index={parsed['step_index']} "
                             f"sim_time={parsed['seconds']}s {parsed['nanos']}ns"
                         )
                     else:
                         print(
                             f"[RECV][TCP][GetStatus] parse failed "
-                            f"rid={request_id} payload_size={payload_size} raw={payload!r}"
+                            f"rid={request_id} payload_size={payload_size}"
                         )
 
-                # 전용 로그 2: CreateObject
+                # =========================
+                # CreateObject
+                # =========================
                 elif msg_class == proto.MSG_CLASS_RESP and msg_type == proto.MSG_TYPE_CREATE_OBJECT:
+
                     parsed = tcp.parse_create_object_payload(payload)
+
                     if parsed is not None:
+                        result_str = result_to_string(parsed["result_code"])
+
                         print(
                             f"[RECV][TCP][CreateObject] rid={request_id} "
-                            f"result={parsed['result_code']} detail={parsed['detail_code']} "
+                            f"result={parsed['result_code']}({result_str}) "
+                            f"detail={parsed['detail_code']} "
                             f"object_id={parsed['object_id']}"
                         )
                     else:
                         print(
                             f"[RECV][TCP][CreateObject] parse failed "
-                            f"rid={request_id} payload_size={payload_size} raw={payload!r}"
+                            f"rid={request_id} payload_size={payload_size}"
                         )
 
-                # 나머지 전체 공통 로그
-                else:
-                    print(
-                        f"[RECV][TCP][General] class=0x{msg_class:02X} "
-                        f"type=0x{msg_type:04X} rid={request_id} "
-                        f"payload_size={payload_size}"
-                    )
+                # =========================
+                # General RESP
+                # =========================
+                elif msg_class == proto.MSG_CLASS_RESP:
 
-                # pending sync signal
+                    if payload_size >= proto.RESULT_SIZE:
+
+                        parsed = tcp.parse_result_code(payload)
+
+                        if parsed is not None:
+                            result_code, detail_code = parsed
+                            result_str = result_to_string(result_code)
+
+                            print(
+                                f"[RECV][TCP][General] type=0x{msg_type:04X} "
+                                f"rid={request_id} "
+                                f"result={result_code}({result_str}) "
+                                f"detail={detail_code}"
+                            )
+                        else:
+                            print(
+                                f"[RECV][TCP][General] type=0x{msg_type:04X} "
+                                f"rid={request_id} result=parse_failed"
+                            )
+
+                    else:
+                        print(
+                            f"[RECV][TCP][General] type=0x{msg_type:04X} "
+                            f"rid={request_id} payload_size={payload_size}"
+                        )
+
+                # =========================
+                # pending sync
+                # =========================
                 if msg_class == proto.MSG_CLASS_RESP:
                     key = (request_id, msg_type)
                     with self.lock:
@@ -82,6 +165,7 @@ class Receiver(threading.Thread):
         except (ConnectionError, OSError) as e:
             print(f"[RECV-THREAD] stopped: {e}")
             self.running = False
+
         except Exception as e:
             print(f"[RECV-THREAD][UNEXPECTED] {type(e).__name__}: {e}")
             self.running = False
