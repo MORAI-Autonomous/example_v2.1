@@ -2,6 +2,7 @@ import threading
 
 import protocol_defs as proto
 import tcp_transport as tcp
+import input_helper as prompt
 
 
 def result_to_string(code: int):
@@ -45,7 +46,7 @@ class Receiver(threading.Thread):
                 )
 
                 # =========================
-                # SetSimulationTimeModeCommand (0x1100)
+                # SetSimulationTimeModeCommand (0x1102)
                 # =========================
                 if (
                     msg_class == proto.MSG_CLASS_RESP
@@ -73,7 +74,7 @@ class Receiver(threading.Thread):
                         )
 
                 # =========================
-                # GetStatus
+                # GetStatus (0x1101)
                 # =========================
                 elif msg_class == proto.MSG_CLASS_RESP and msg_type == proto.MSG_TYPE_GET_SIMULATION_TIME_STATUS:
 
@@ -100,7 +101,7 @@ class Receiver(threading.Thread):
                         )
 
                 # =========================
-                # CreateObject
+                # CreateObject (0x1301)
                 # =========================
                 elif msg_class == proto.MSG_CLASS_RESP and msg_type == proto.MSG_TYPE_CREATE_OBJECT:
 
@@ -118,6 +119,36 @@ class Receiver(threading.Thread):
                     else:
                         print(
                             f"[RECV][TCP][CreateObject] parse failed "
+                            f"rid={request_id} payload_size={payload_size}"
+                        )
+
+                # =========================
+                # ActiveSuiteStatus (0x1401)
+                # =========================
+                elif msg_class == proto.MSG_CLASS_RESP and msg_type == proto.MSG_TYPE_ACTIVE_SUITE_STATUS:
+
+                    parsed = tcp.parse_active_suite_status_payload(payload)
+
+                    if parsed is not None:
+                        # 시나리오 목록 캐시 갱신
+                        prompt.update_scenario_list(parsed["scenario_list"])
+
+                        scenario_list_str = (
+                            ", ".join(parsed["scenario_list"])
+                            if parsed["scenario_list"]
+                            else "(empty)"
+                        )
+                        print(
+                            f"[RECV][TCP][ActiveSuiteStatus] rid={request_id} "
+                            f"result={parsed['result_code']}({result_to_string(parsed['result_code'])}) "
+                            f"suite={parsed['active_suite_name']!r} "
+                            f"scenario={parsed['active_scenario_name']!r} "
+                            f"scenario_count={len(parsed['scenario_list'])} "
+                            f"scenarios=[{scenario_list_str}]"
+                        )
+                    else:
+                        print(
+                            f"[RECV][TCP][ActiveSuiteStatus] parse failed "
                             f"rid={request_id} payload_size={payload_size}"
                         )
 

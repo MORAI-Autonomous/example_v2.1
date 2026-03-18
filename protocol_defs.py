@@ -47,6 +47,7 @@ MSG_TYPE_TRANSFORM_CONTROL_BY_ID_COMMAND = 0x1303
 MSG_TYPE_SET_TRAJECTORY_COMMAND        = 0x1304
 
 # Suite / Scenario
+MSG_TYPE_ACTIVE_SUITE_STATUS           = 0x1401
 MSG_TYPE_LOAD_SUITE                    = 0x1402
 MSG_TYPE_SCENARIO_STATUS               = 0x1504
 MSG_TYPE_SCENARIO_CONTROL              = 0x1505
@@ -63,6 +64,7 @@ VALID_MSG_TYPES = {
     MSG_TYPE_LOAD_SUITE,
     MSG_TYPE_SCENARIO_STATUS,
     MSG_TYPE_SCENARIO_CONTROL,
+    MSG_TYPE_ACTIVE_SUITE_STATUS,
 }
 
 
@@ -172,6 +174,38 @@ SET_TRAJECTORY_MIN_SIZE = (
     SET_TRAJECTORY_NAME_SIZE_SIZE +
     SET_TRAJECTORY_POINT_COUNT_SIZE
 )  # 16
+
+# --- Active Suite Status ---
+#
+# Request  : payload 없음 (Header만 전송)
+#
+# Response layout:
+#   uint32  active_suite_name_size
+#   bytes   active_suite_name          (utf-8, active_suite_name_size bytes)
+#   uint32  active_scenario_name_size
+#   bytes   active_scenario_name       (utf-8, active_scenario_name_size bytes)
+#   uint32  scenario_list_size         (리스트 항목 수)
+#   repeat scenario_list_size × {
+#       uint32  name_size
+#       bytes   name                   (utf-8, name_size bytes)
+#   }
+#
+# 고정 크기 필드만 정의 (string/list는 가변이므로 fmt 없음)
+#
+ACTIVE_SUITE_STATUS_STR_LEN_FMT  = LITTLE_ENDIAN + "I"   # uint32 length prefix 공용
+ACTIVE_SUITE_STATUS_STR_LEN_SIZE = struct.calcsize(ACTIVE_SUITE_STATUS_STR_LEN_FMT)  # 4
+
+ACTIVE_SUITE_STATUS_LIST_COUNT_FMT  = LITTLE_ENDIAN + "I"
+ACTIVE_SUITE_STATUS_LIST_COUNT_SIZE = struct.calcsize(ACTIVE_SUITE_STATUS_LIST_COUNT_FMT)  # 4
+
+# 최소 수신 크기:
+#   active_suite_name_size(4) + active_scenario_name_size(4) + scenario_list_size(4)
+#   = 12  (각 문자열 길이가 0이고 리스트가 비어 있을 때)
+ACTIVE_SUITE_STATUS_RESP_MIN_SIZE = (
+    ACTIVE_SUITE_STATUS_STR_LEN_SIZE +   # active_suite_name_size
+    ACTIVE_SUITE_STATUS_STR_LEN_SIZE +   # active_scenario_name_size
+    ACTIVE_SUITE_STATUS_LIST_COUNT_SIZE  # scenario_list_size
+)  # 12
 
 
 # ============================================================

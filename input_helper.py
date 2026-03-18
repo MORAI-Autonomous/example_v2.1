@@ -134,11 +134,50 @@ _SCENARIO_COMMANDS = {
     2: "PAUSE",
     3: "STOP",
     4: "PREV",
-    5: "NEXT",    
+    5: "NEXT",
 }
 
+
+# ============================================================
+# Scenario list buffer
+# ActiveSuiteStatus 수신 시 receiver 쪽에서 갱신
+# ============================================================
+
+_scenario_list_cache: list[str] = []
+
+def update_scenario_list(scenario_list: list[str]) -> None:
+    """receiver 에서 ActiveSuiteStatus 파싱 후 호출."""
+    global _scenario_list_cache
+    _scenario_list_cache = list(scenario_list)
+
+
 def prompt_scenario_control() -> dict:
+    """
+    Returns:
+        {"command": int, "scenario_name": str}
+        scenario_name 은 직접 선택 시 채워지고, 나머지 커맨드는 빈 문자열.
+    """
     print("\n── Scenario Control ─────────────────────────")
     command = _ask_select("Scenario Command:", _SCENARIO_COMMANDS, default=1)
     print(f"  selected: {_SCENARIO_COMMANDS[command]} ({command})")
-    return {"command": command}
+
+    scenario_name = ""
+
+    # PLAY 커맨드일 때만 시나리오 직접 선택 옵션 제공
+    if command == 1:  # SCENARIO_STATE_PLAYING
+        if _scenario_list_cache:
+            print("\n── Select Target Scenario (Enter 로 건너뜀) ──")
+            for i, name in enumerate(_scenario_list_cache):
+                print(f"  [{i}] {name}")
+            raw = _read_line("  번호 입력: ")
+            if raw.isdigit():
+                idx = int(raw)
+                if 0 <= idx < len(_scenario_list_cache):
+                    scenario_name = _scenario_list_cache[idx]
+                    print(f"  target: {scenario_name!r}")
+                else:
+                    print(f"  [WARN] 범위 초과 — target_scenario 없이 전송")
+        else:
+            print("  [INFO] 캐시된 시나리오 목록 없음 — [c] ActiveSuiteStatus 먼저 조회하세요")
+
+    return {"command": command, "scenario_name": scenario_name}

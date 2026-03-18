@@ -88,21 +88,22 @@ def connect_and_start_receiver(pending: dict, lock: threading.Lock):
 
 def print_key_bindings():
     print("---- Simulation Time Mode ----")
-    print("  [1] GetSimulationTimeStatus   (TCP 0x1101)")
+    print("  [1] GetSimulationTimeStatus      (TCP 0x1101)")
     print("  [2] SetSimulationTimeModeCommand (TCP 0x1102)")
     print("---- Fixed Step Control ------")
-    print("  [3] FixedStep                 (TCP 0x1201)")
-    print("  [4] SaveData                  (TCP 0x1202)")
+    print("  [3] FixedStep                    (TCP 0x1201)")
+    print("  [4] SaveData                     (TCP 0x1202)")
     print("---- Object Control ----------")
-    print("  [5] CreateObject              (TCP 0x1301)")
-    print("  [6] ManualControlById         (TCP 0x1302)")
-    print("  [7] TransformControlById      (TCP 0x1303)")
-    print("  [8] SetTrajectory             (TCP 0x1304)  * 런타임 생성 객체 불가")
-    print("---- Suite Control -----------")
-    print("  [c] LoadSuite                 (TCP 0x1402)  * 예외 처리 필요")
+    print("  [5] CreateObject                 (TCP 0x1301)")
+    print("  [6] ManualControlById            (TCP 0x1302)")
+    print("  [7] TransformControlById         (TCP 0x1303)")
+    print("  [8] SetTrajectory                (TCP 0x1304)")
     print("---- Scenario Control --------")
-    print("  [a] ScenarioStatus            (TCP 0x1504)  * 에러남")
-    print("  [b] ScenarioControl           (TCP 0x1505)  * 예외 처리 필요")
+    print("  [a] ScenarioStatus               (TCP 0x1504)")
+    print("  [b] ScenarioControl              (TCP 0x1505)")
+    print("---- Suite Control -----------")
+    print("  [c] ActiveSuiteStatus            (TCP 0x1401)")
+    print("  [d] LoadSuite                    (TCP 0x1402)")
     print("---- ETC ---------------------")
     print(f" [W] Toggle AutoCall (FixedStep <-> SaveData) x {MAX_CALL_NUM}")
     print("  [Q] Quit\n")
@@ -225,9 +226,16 @@ def main():
                 elif key in ("b", "B"):
                     params = prompt.prompt_scenario_control()
                     dispatch(MSG_TYPE_SCENARIO_CONTROL,
-                             lambda rid: tcp.send_scenario_control(tcp_sock, rid, **params))
+                             lambda rid, p=params: tcp.send_scenario_control(
+                                 tcp_sock, rid,
+                                 command=p["command"],
+                                 scenario_name=p["scenario_name"]))
 
                 elif key in ("c", "C"):
+                    dispatch(MSG_TYPE_ACTIVE_SUITE_STATUS,
+                             lambda rid: tcp.send_active_suite_status(tcp_sock, rid))
+
+                elif key in ("d", "D"):
                     dispatch(MSG_TYPE_LOAD_SUITE,
                              lambda rid: tcp.send_load_suite(
                                  tcp_sock, rid,

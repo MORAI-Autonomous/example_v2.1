@@ -88,6 +88,20 @@ def _pack_str(s: str) -> bytes:
     return struct.pack("<I", len(b)) + b
 
 
+def _unpack_str(payload: bytes, offset: int) -> Tuple[str, int]:
+    """offset 위치에서 uint32 길이 + UTF-8 문자열을 읽고 (문자열, 다음 offset)을 반환."""
+    if offset + proto.ACTIVE_SUITE_STATUS_STR_LEN_SIZE > len(payload):
+        raise ValueError(f"_unpack_str: length 필드 읽기 실패 (offset={offset}, buf={len(payload)})")
+    (str_len,) = struct.unpack_from(proto.ACTIVE_SUITE_STATUS_STR_LEN_FMT, payload, offset)
+    offset += proto.ACTIVE_SUITE_STATUS_STR_LEN_SIZE
+
+    end = offset + str_len
+    if end > len(payload):
+        raise ValueError(f"_unpack_str: 문자열 데이터 부족 (need={str_len}, remain={len(payload)-offset})")
+    text = payload[offset:end].decode("utf-8", errors="replace")
+    return text, end
+
+
 # ============================================================
 # Payload builders
 # ============================================================
@@ -243,10 +257,16 @@ def send_scenario_status(sock: socket.socket, request_id: int):
                  "ScenarioStatus(0x1504)")
 
 
-def send_scenario_control(sock: socket.socket, request_id: int, command: int):
-    payload = struct.pack("<I", command)
+def send_scenario_control(sock: socket.socket, request_id: int, command: int, scenario_name: str = ""):
+    payload = struct.pack("<I", command) + _pack_str(scenario_name)
     _send_packet(sock, request_id, proto.MSG_TYPE_SCENARIO_CONTROL, payload,
-                 f"ScenarioControl(0x1505) command={command}")
+                 f"ScenarioControl(0x1505) command={command} scenario_name={scenario_name!r}")
+
+
+def send_active_suite_status(sock: socket.socket, request_id: int):
+    """payload 없이 헤더만 전송."""
+    _send_packet(sock, request_id, proto.MSG_TYPE_ACTIVE_SUITE_STATUS, b"",
+                 "ActiveSuiteStatus(0x1401)")
 
 
 # ============================================================
@@ -303,4 +323,70 @@ def parse_create_object_payload(payload: bytes) -> Optional[Dict[str, Any]]:
     return {
         "result_code": result_code, "detail_code": detail_code,
         "object_id_length": object_id_length, "object_id": object_id,
+    }
+
+
+def parse_active_suite_status_payload(payload: bytes) -> Optional[Dict[str, Any]]:
+    """
+    Response layout:
+        uint32  active_suite_name_size
+        bytes   active_suite_name
+        uint32  active_scenario_name_size
+        bytes   active_scenario_name
+        uint32  scenario_list_size
+        repeat scenario_list_size × {
+            uint32  name_size
+            bytes   name
+        }
+
+    Returns:
+        {
+            "active_suite_name":    str,
+            "active_scenario_name": str,
+            "scenario_list":        List[str],
+        }
+        or None if payload is malformed.
+    """
+    # ResultCode (result_code: uint32 + detail_code: uint32) 를 먼저 건너뜀
+    if len(payload) < proto.RESULT_SIZE + proto.ACTIVE_SUITE_STATUS_RESP_MIN_SIZE:
+        return None
+
+    result_code, detail_code = struct.unpack_from(proto.RESULT_FMT, payload, 0)
+    if result_code != 0:
+        print(f"[PARSE][ActiveSuiteStatus] Server error: result_code={result_code} detail_code={detail_code}")
+        return None
+
+    try:
+        offset = proto.RESULT_SIZE  # 8바이트 skip
+
+        # 1) active_suite_name
+        active_suite_name, offset = _unpack_str(payload, offset)
+
+        # 2) active_scenario_name
+        active_scenario_name, offset = _unpack_str(payload, offset)
+
+        # 3) scenario_list_size
+        if offset + proto.ACTIVE_SUITE_STATUS_LIST_COUNT_SIZE > len(payload):
+            return None
+        (scenario_list_size,) = struct.unpack_from(
+            proto.ACTIVE_SUITE_STATUS_LIST_COUNT_FMT, payload, offset
+        )
+        offset += proto.ACTIVE_SUITE_STATUS_LIST_COUNT_SIZE
+
+        # 4) scenario_list 항목 순회
+        scenario_list: List[str] = []
+        for i in range(scenario_list_size):
+            name, offset = _unpack_str(payload, offset)
+            scenario_list.append(name)
+
+    except ValueError as e:
+        print(f"[PARSE][ActiveSuiteStatus] 파싱 오류: {e}")
+        return None
+
+    return {
+        "result_code":          result_code,
+        "detail_code":          detail_code,
+        "active_suite_name":    active_suite_name,
+        "active_scenario_name": active_scenario_name,
+        "scenario_list":        scenario_list,
     }
