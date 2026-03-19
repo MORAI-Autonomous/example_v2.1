@@ -74,7 +74,7 @@ class Receiver(threading.Thread):
                         )
 
                 # =========================
-                # GetStatus (0x1101)
+                # Get Simulation Time Status (0x1101)
                 # =========================
                 elif msg_class == proto.MSG_CLASS_RESP and msg_type == proto.MSG_TYPE_GET_SIMULATION_TIME_STATUS:
 
@@ -149,6 +149,32 @@ class Receiver(threading.Thread):
                     else:
                         print(
                             f"[RECV][TCP][ActiveSuiteStatus] parse failed "
+                            f"rid={request_id} payload_size={payload_size}"
+                        )
+
+                # =========================
+                # ScenarioStatus (0x1504)
+                # =========================
+                elif msg_class == proto.MSG_CLASS_RESP and msg_type == proto.MSG_TYPE_SCENARIO_STATUS:
+                    parsed = tcp.parse_scenario_status_payload(payload)
+
+                    if parsed is not None:
+                        STATE_MAP = {
+                            1: "PLAY",
+                            2: "PAUSE",
+                            3: "STOP",
+                        }
+                        state_str = STATE_MAP.get(parsed["state"], f"UNKNOWN({parsed['state']})")
+
+                        print(
+                            f"[RECV][TCP][ScenarioStatus] rid={request_id} "
+                            f"result={parsed['result_code']}({result_to_string(parsed['result_code'])}) "
+                            f"detail={parsed['detail_code']} "
+                            f"state={parsed['state']}({state_str})"
+                        )
+                    else:
+                        print(
+                            f"[RECV][TCP][ScenarioStatus] parse failed "
                             f"rid={request_id} payload_size={payload_size}"
                         )
 

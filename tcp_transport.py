@@ -390,3 +390,19 @@ def parse_active_suite_status_payload(payload: bytes) -> Optional[Dict[str, Any]
         "active_scenario_name": active_scenario_name,
         "scenario_list":        scenario_list,
     }
+
+def parse_scenario_status_payload(payload: bytes) -> dict | None:
+    try:
+        # payload = [16]~[27], 총 12바이트
+        # result_code(4) + detail_code(4) + state(4)
+        result_code  = struct.unpack_from("<I", payload, offset=0)[0]
+        detail_code  = struct.unpack_from("<I", payload, offset=4)[0]
+        state        = struct.unpack_from("<I", payload, offset=8)[0]
+        return {
+            "result_code": result_code,
+            "detail_code": detail_code,
+            "state": state,
+        }
+    except Exception as e:
+        print(f"[PARSE][ScenarioStatus] {e}")
+        return None
