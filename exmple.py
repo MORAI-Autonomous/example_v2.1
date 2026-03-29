@@ -239,7 +239,7 @@ def main():
                     dispatch(MSG_TYPE_LOAD_SUITE,
                              lambda rid: tcp.send_load_suite(
                                  tcp_sock, rid,
-                                 suite_path=r"C:\\Users\\user\\Desktop\\memory test (4)\\memory test.msuite"))
+                                 suite_path=r"C:\\Users\\user\\Desktop\\TotalTest\\TotalTest.msuite"))
 
                 elif key in ("w", "W"):
                     toggle_auto_caller()

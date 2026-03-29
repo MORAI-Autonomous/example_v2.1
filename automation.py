@@ -46,10 +46,13 @@ class AutoCaller(threading.Thread):
         self._stop.set()
 
     def _next_rid(self) -> int:
-        with self.lock:
-            rid = self.request_id_ref["value"]
-            self.request_id_ref["value"] += 1
-        return rid
+        return self.request_id_ref.next()
+
+    # def _next_rid(self) -> int:
+    #     with self.lock:
+    #         rid = self.request_id_ref["value"]
+    #         self.request_id_ref["value"] += 1
+    #     return rid
 
     def _wait_or_stop(self, ev: threading.Event) -> bool:
         if self._stop.is_set():

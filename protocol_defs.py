@@ -212,6 +212,6 @@ ACTIVE_SUITE_STATUS_RESP_MIN_SIZE = (
 # AutoCall Defaults
 # ============================================================
 
-MAX_CALL_NUM              = 5000
+MAX_CALL_NUM              = 2000
 AUTO_TIMEOUT_SEC          = 2.0
 AUTO_DELAY_BETWEEN_CMDS_SEC = 0.0  # 필요시 0.01 등으로 조절

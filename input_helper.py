@@ -98,8 +98,8 @@ def prompt_create_object() -> dict:
 def prompt_manual_control_by_id() -> dict:
     print("\n── Manual Control By Id ─────────────────────")
     return {
-        "entity_id":  _ask_str  ("entity id",   "Car_2"),
-        "throttle":   _ask_float("throttle",    0.0   ),
+        "entity_id":  _ask_str  ("entity id",   "Car_1"),
+        "throttle":   _ask_float("throttle",    0.4   ),
         "brake":      _ask_float("brake",       0.0   ),
         "steer_angle":_ask_float("steer angle", 0.0   ),
     }
