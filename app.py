@@ -295,17 +295,11 @@ def build_ui(state: AppState):
                                   border=True,
                                   no_scrollbar=True, no_scroll_with_mouse=True):
                 with dpg.tab_bar(tag="mon_tabbar"):
-                    with dpg.tab(label="Vehicle Info", tag="tab_vehicle"):
+                    with dpg.tab(label="UDP Monitor", tag="tab_vehicle"):
                         with dpg.child_window(tag="mon_scroll",
                                               width=-1, height=-1,
                                               border=False):
                             monitor_panel.build(parent="mon_scroll")
-                    with dpg.tab(label="Collision", tag="tab_collision"):
-                        with dpg.child_window(tag="collision_scroll",
-                                              width=-1, height=-1,
-                                              border=False):
-                            dpg.add_text("CollisionEvent feed", color=(130, 130, 140),
-                                         parent="collision_scroll")
 
         # ── 하단: 로그 ────────────────────────────────────
         # no_scrollbar=True: log_child 가 자체 스크롤 담당
