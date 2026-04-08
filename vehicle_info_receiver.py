@@ -8,7 +8,7 @@ import time
 # UDP Receiver Config (Vehicle Info)
 # =========================
 VEHICLE_INFO_IP = "127.0.0.1"
-VEHICLE_INFO_PORT = 9092
+VEHICLE_INFO_PORT = 9097
 
 # Vehicle Info payload (no header)
 # int64 seconds, int32 nanos, char[24] id, float32 x18
