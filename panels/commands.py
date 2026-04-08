@@ -4,9 +4,9 @@ from typing import Callable, Optional
 import threading
 
 import dearpygui.dearpygui as dpg
-import ui_queue
-import protocol_defs as proto
-import tcp_transport as tcp
+import utils.ui_queue as ui_queue
+import transport.protocol_defs as proto
+import transport.tcp_transport as tcp
 
 _tcp_sock                     = None
 _dispatch: Optional[Callable] = None
@@ -25,18 +25,21 @@ def build(parent: int | str) -> None:
 
         # ── Simulation Time ────────────────────────────────
         _section("SIMULATION TIME")
+        dpg.add_button(label="GetStatus",
+            callback=lambda: _dispatch(
+                proto.MSG_TYPE_GET_SIMULATION_TIME_STATUS,
+                lambda rid: tcp.send_get_status(_tcp_sock, rid)))
         with dpg.group(horizontal=True):
-            dpg.add_button(label="GetStatus",
-                callback=lambda: _dispatch(
-                    proto.MSG_TYPE_GET_SIMULATION_TIME_STATUS,
-                    lambda rid: tcp.send_get_status(_tcp_sock, rid)))
+            dpg.add_text("Hz", color=(180, 180, 180, 255))
+            dpg.add_input_float(
+                tag="sim_hz",
+                default_value=20.0,
+                min_value=1.0, max_value=1000.0,
+                format="%.1f",
+                width=75,
+            )
             dpg.add_button(label="SetMode: FixedStep",
-                callback=lambda: _dispatch(
-                    proto.MSG_TYPE_SET_SIMULATION_TIME_MODE_COMMAND,
-                    lambda rid: tcp.send_simulation_time_mode_command(
-                        _tcp_sock, rid,
-                        mode=proto.TIME_MODE_FIXED_STEP,
-                        fixed_delta=20.0)))
+                callback=_on_set_fixed_step)
 
         # ── Fixed Step ─────────────────────────────────────
         _section("FIXED STEP")
@@ -199,6 +202,19 @@ def _load_suite() -> None:
     _dispatch(
         proto.MSG_TYPE_LOAD_SUITE,
         lambda rid: tcp.send_load_suite(_tcp_sock, rid, suite_path=path),
+    )
+
+
+def _on_set_fixed_step() -> None:
+    hz         = max(dpg.get_value("sim_hz"), 1.0)
+    fixed_delta = 1000.0 / hz          # Hz → ms
+    _dispatch(
+        proto.MSG_TYPE_SET_SIMULATION_TIME_MODE_COMMAND,
+        lambda rid, fd=fixed_delta: tcp.send_simulation_time_mode_command(
+            _tcp_sock, rid,
+            mode=proto.TIME_MODE_FIXED_STEP,
+            fixed_delta=fd,
+        ),
     )
 
 

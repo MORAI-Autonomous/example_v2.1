@@ -2,13 +2,13 @@ import socket
 import threading
 import time
 
-from protocol_defs import *
-import tcp_transport as tcp
-import tcp_thread as tcp_thread
-import automation as ac
-import key_input as key_input
-import commands as commands
-import input_helper as prompt
+from transport.protocol_defs import *
+import transport.tcp_transport as tcp
+import transport.tcp_thread as tcp_thread
+import automation.automation as ac
+import utils.key_input as key_input
+import transport.commands as commands
+import utils.input_helper as prompt
 
 
 # ============================================================

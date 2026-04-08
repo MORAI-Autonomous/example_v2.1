@@ -1,9 +1,9 @@
 # tcp_thread.py
 import threading
 
-import protocol_defs as proto
-import tcp_transport as tcp
-import input_helper as prompt
+import transport.protocol_defs as proto
+import transport.tcp_transport as tcp
+import utils.input_helper as prompt
 import panels.log as log
 
 

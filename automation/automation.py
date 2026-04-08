@@ -2,8 +2,8 @@
 import threading
 import time
 
-import protocol_defs as proto
-import tcp_transport as tcp
+import transport.protocol_defs as proto
+import transport.tcp_transport as tcp
 class AutoCaller(threading.Thread):
     """
     FixedStep <-> SaveData를 max_calls 만큼 반복 호출.

@@ -22,12 +22,12 @@ import itertools
 import cv2
 import numpy as np
 
-import tcp_transport as tcp
-import protocol_defs as proto
-from camera_receiver import CameraReceiver
-from lane_preprocessor import LanePreprocessor
-from lane_detector import LaneDetector
-from vehicle_info_with_wheel_receiver import parse_vehicle_info_payload
+import transport.tcp_transport as tcp
+import transport.protocol_defs as proto
+from receivers.camera_receiver import CameraReceiver
+from lane_control.lane_preprocessor import LanePreprocessor
+from lane_control.lane_detector import LaneDetector
+from receivers.vehicle_info_with_wheel_receiver import parse_vehicle_info_payload
 
 
 # ─── Request ID 카운터 (단방향 송신이므로 간단한 카운터로 충분) ──

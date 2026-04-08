@@ -3,7 +3,7 @@ import socket
 import struct
 from typing import Any, Dict, List, Optional, Tuple
 
-import protocol_defs as proto
+import transport.protocol_defs as proto
 
 
 # ============================================================

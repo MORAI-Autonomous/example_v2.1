@@ -1,15 +1,16 @@
 # app.py
+import os
 import socket
 import threading
 import time
 
 import dearpygui.dearpygui as dpg
 
-from protocol_defs import *
-import tcp_transport as tcp
-import tcp_thread as tcp_thread_mod
-import automation as ac
-import ui_queue
+from transport.protocol_defs import *
+import transport.tcp_transport as tcp
+import transport.tcp_thread as tcp_thread_mod
+import automation.automation as ac
+import utils.ui_queue as ui_queue
 import panels.log      as log_panel
 import panels.monitor  as monitor_panel
 import panels.commands as cmd_panel
@@ -326,6 +327,21 @@ def main():
     state = AppState()
 
     dpg.create_context()
+
+    # 한글·유니코드 폰트 로드 (기본 폰트는 ASCII만 지원)
+    _FONT_CANDIDATES = [
+        "C:/Windows/Fonts/malgun.ttf",    # 맑은 고딕 (Windows 기본)
+        "C:/Windows/Fonts/gulim.ttc",     # 굴림
+    ]
+    for _fp in _FONT_CANDIDATES:
+        if os.path.exists(_fp):
+            with dpg.font_registry():
+                with dpg.font(_fp, 15) as _font:
+                    dpg.add_font_range_hint(dpg.mvFontRangeHint_Default)
+                    dpg.add_font_range_hint(dpg.mvFontRangeHint_Korean)
+            dpg.bind_font(_font)
+            break
+
     dpg.create_viewport(
         title="MORAI Sim Control",
         width=W_INIT, height=H_INIT,

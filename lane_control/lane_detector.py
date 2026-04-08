@@ -11,7 +11,7 @@ import cv2
 import numpy as np
 from dataclasses import dataclass
 from typing import Optional, Tuple
-from lane_preprocessor import LanePreprocessor, BEVParams
+from lane_control.lane_preprocessor import LanePreprocessor, BEVParams
 
 
 # ─── 실세계 스케일 (BEV 픽셀 → 미터 변환) ──────────────────────
@@ -569,7 +569,7 @@ def _put_hud(img, offset, radius, left_ok, right_ok):
 # ─── 단독 실행 (검출 확인용) ─────────────────────────────────────
 def main():
     import argparse, time
-    from camera_receiver import CameraReceiver
+    from receivers.camera_receiver import CameraReceiver
 
     parser = argparse.ArgumentParser(description="Sliding Window 차선 검출 확인")
     group = parser.add_mutually_exclusive_group(required=True)

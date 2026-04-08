@@ -2,7 +2,7 @@
 import socket
 import struct
 
-import protocol_defs as proto
+import transport.protocol_defs as proto
 
 def send_manual_udp(
     udp_sock: socket.socket,

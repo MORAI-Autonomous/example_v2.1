@@ -5,10 +5,10 @@ import threading
 
 import dearpygui.dearpygui as dpg
 
-import ui_queue
-from vehicle_info_receiver import parse_vehicle_info_payload as _parse_vi
-from vehicle_info_with_wheel_receiver import parse_vehicle_info_payload as _parse_vi_wheel
-from collision_event_receiver import parse_collision_event_payload as _parse_col
+import utils.ui_queue as ui_queue
+from receivers.vehicle_info_receiver import parse_vehicle_info_payload as _parse_vi
+from receivers.vehicle_info_with_wheel_receiver import parse_vehicle_info_payload as _parse_vi_wheel
+from receivers.collision_event_receiver import parse_collision_event_payload as _parse_col
 
 # ─── Receiver registry ──────────────────────────────────────────
 _MAX_SPEED = 50.0

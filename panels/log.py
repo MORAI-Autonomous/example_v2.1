@@ -1,7 +1,7 @@
 # panels/log.py
 import time
 import dearpygui.dearpygui as dpg
-import ui_queue
+import utils.ui_queue as ui_queue
 
 _MAX_LINES  = 500
 _TAG_CHILD  = "log_child"

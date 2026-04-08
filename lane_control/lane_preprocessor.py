@@ -334,7 +334,7 @@ def run_tuner(source):
     """
     source: np.ndarray (단일 이미지) 또는 CameraReceiver 인스턴스
     """
-    from camera_receiver import CameraReceiver
+    from receivers.camera_receiver import CameraReceiver
 
     p  = BEVParams()
     pp = LanePreprocessor(p)
@@ -399,7 +399,7 @@ def main():
         frame = cv2.resize(frame, (640, 480))
         run_tuner(frame)
     else:
-        from camera_receiver import CameraReceiver
+        from receivers.camera_receiver import CameraReceiver
         receiver = CameraReceiver(ip=args.ip, port=args.port, show=False)
         receiver.start()
         print(f"카메라 수신 대기 중 ({args.ip}:{args.port})...")
