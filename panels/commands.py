@@ -24,8 +24,8 @@ def build(parent: int | str) -> None:
     with dpg.child_window(parent=parent, width=-1, height=-1, border=False):
 
         # ── Simulation Time ────────────────────────────────
-        _section("SIMULATION TIME")
-        dpg.add_button(label="GetStatus",
+        _section("SIMULATION TIME Mode")
+        dpg.add_button(label="Get Current Time Mode Status",
             callback=lambda: _dispatch(
                 proto.MSG_TYPE_GET_SIMULATION_TIME_STATUS,
                 lambda rid: tcp.send_get_status(_tcp_sock, rid)))
@@ -36,6 +36,7 @@ def build(parent: int | str) -> None:
                 default_value=20.0,
                 min_value=1.0, max_value=1000.0,
                 format="%.1f",
+                step=0,
                 width=75,
             )
             dpg.add_button(label="SetMode: FixedStep",
@@ -84,7 +85,7 @@ def build(parent: int | str) -> None:
             ]:
                 dpg.add_text(label)
                 dpg.add_input_float(tag=tag, default_value=default,
-                                    min_value=-1.0, max_value=1.0, width=65)
+                                    min_value=-1.0, max_value=1.0, step=0, width=65)
         dpg.add_button(label="ManualControlById",
             callback=lambda: _dispatch(
                 proto.MSG_TYPE_MANUAL_CONTROL_BY_ID_COMMAND,
@@ -101,10 +102,10 @@ def build(parent: int | str) -> None:
             for tag, lbl in [("tc_px","px"),("tc_py","py"),("tc_pz","pz"),
                               ("tc_rx","rx"),("tc_ry","ry"),("tc_rz","rz")]:
                 dpg.add_text(lbl)
-                dpg.add_input_float(tag=tag, default_value=0.0, width=58)
+                dpg.add_input_float(tag=tag, default_value=0.0, step=0, width=58)
         with dpg.group(horizontal=True):
             dpg.add_text("steer")
-            dpg.add_input_float(tag="tc_steer", default_value=0.0, width=65)
+            dpg.add_input_float(tag="tc_steer", default_value=0.0, step=0, width=65)
         dpg.add_button(label="TransformControlById",
             callback=lambda: _dispatch(
                 proto.MSG_TYPE_TRANSFORM_CONTROL_BY_ID_COMMAND,

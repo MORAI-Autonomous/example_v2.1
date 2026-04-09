@@ -336,7 +336,7 @@ def main():
     for _fp in _FONT_CANDIDATES:
         if os.path.exists(_fp):
             with dpg.font_registry():
-                with dpg.font(_fp, 15) as _font:
+                with dpg.font(_fp, 17) as _font:
                     dpg.add_font_range_hint(dpg.mvFontRangeHint_Default)
                     dpg.add_font_range_hint(dpg.mvFontRangeHint_Korean)
             dpg.bind_font(_font)
