@@ -110,7 +110,13 @@ def _make_groups(field_list: List[Dict]) -> List[Dict]:
 def _fmt(val: Any, var_type: str) -> str:
     if var_type in ("FLOAT", "DOUBLE"):
         try:
-            return f"{float(val):.4f}"
+            f = float(val)
+            # 너무 크거나 너무 작으면 지수 표기 (:.Nf 가 수십 자리 문자열이 되는 것 방지)
+            if abs(f) >= 1e6 or (f != 0.0 and abs(f) < 1e-4):
+                return f"{f:.6e}" if var_type == "DOUBLE" else f"{f:.4e}"
+            # DOUBLE: 8바이트 정밀도에 맞게 소수점 6자리
+            # FLOAT : 4바이트 정밀도에 맞게 소수점 4자리
+            return f"{f:.6f}" if var_type == "DOUBLE" else f"{f:.4f}"
         except Exception:
             return str(val)
     return str(val)
@@ -189,9 +195,6 @@ def build(parent) -> None:
 
     # ── 상단: child_window 없이 parent에 직접 추가 ───────────────
     # (child_window 래퍼를 쓰면 내부 스크롤바가 생길 수 있음)
-    dpg.add_text("UDP Monitor", color=(200, 200, 100, 255), parent=parent)
-    dpg.add_separator(parent=parent)
-
     dpg.add_text("Templates", color=(180, 180, 180, 255), parent=parent)
     dpg.add_listbox(
         tag=_T["listbox"],
@@ -295,25 +298,31 @@ def _open_monitor(filename: str,
                  parent=_INNER_TABBAR):
         with dpg.child_window(width=-1, height=-1, border=False):
 
-            # IP / Port / Start / Stop / Close
-            with dpg.group(horizontal=True):
-                dpg.add_text("IP:", color=(160, 160, 170))
-                dpg.add_input_text(tag=ip_tag,
-                                   default_value=ip, width=110)
-                dpg.add_text("Port:", color=(160, 160, 170))
-                dpg.add_input_int(tag=port_tag,
-                                  default_value=port,
-                                  width=72, step=0,
-                                  min_value=1, max_value=65535)
-                dpg.add_button(tag=btn_start_tag, label="▶ Start", width=62,
-                               callback=_on_start, user_data=tab_tag)
-                dpg.add_button(tag=btn_stop_tag,  label="■ Stop",  width=62,
-                               callback=_on_stop,  user_data=tab_tag)
-                dpg.add_button(label="■ Close", width=64,
-                               callback=_on_close_tab, user_data=tab_tag)
+            # IP / Port / Start / Stop / Status  |  Close (right-aligned)
+            with dpg.table(header_row=False,
+                           borders_innerV=False, borders_outerV=False,
+                           borders_outerH=False, borders_innerH=False):
+                dpg.add_table_column(width_stretch=True)
+                dpg.add_table_column(width_fixed=True, init_width_or_weight=72)
+                with dpg.table_row():
+                    with dpg.group(horizontal=True):
+                        dpg.add_text("IP:", color=(160, 160, 170))
+                        dpg.add_input_text(tag=ip_tag,
+                                           default_value=ip, width=110)
+                        dpg.add_text("Port:", color=(160, 160, 170))
+                        dpg.add_input_int(tag=port_tag,
+                                          default_value=port,
+                                          width=72, step=0,
+                                          min_value=1, max_value=65535)
+                        dpg.add_button(tag=btn_start_tag, label="▶ Start", width=62,
+                                       callback=_on_start, user_data=tab_tag)
+                        dpg.add_button(tag=btn_stop_tag,  label="■ Stop",  width=62,
+                                       callback=_on_stop,  user_data=tab_tag)
+                        dpg.add_text("○ Stopped", tag=status_tag,
+                                     color=(180, 80, 80, 255))
+                    dpg.add_button(label="X Close", width=-1,
+                                   callback=_on_close_tab, user_data=tab_tag)
 
-            dpg.add_text("○ Stopped", tag=status_tag,
-                         color=(180, 80, 80, 255))
             dpg.add_separator()
 
             dpg.add_group(tag=dyn_group_tag)
@@ -358,20 +367,22 @@ def _rebuild_display(tab_tag: str) -> None:
 
     parser = st["parser"]
 
-    dpg.add_text(f"[ {parser.template_name} ]",
-                 color=(200, 200, 100, 255), parent=dg)
-    dpg.add_separator(parent=dg)
-
     # ── FIELDS table ─────────────────────────────────────────────
     if parser.fields_segment:
         seg = parser.fields_segment
-        dpg.add_text("Fields", color=(180, 180, 180, 255), parent=dg)
 
         fd_list = [{"name": f.name, "variable_name": f.variable_name}
                    for f in seg.fields]
         groups  = _make_groups(fd_list)
 
-        with dpg.table(parent=dg, header_row=True,
+        # repeat 없으면 테이블이 나머지 공간을 전부 채우도록 child_window로 감쌈
+        if not parser.has_repeat:
+            fields_parent = dpg.add_child_window(
+                parent=dg, height=-1, width=-1, border=False)
+        else:
+            fields_parent = dg
+
+        with dpg.table(parent=fields_parent, header_row=True,
                        borders_innerV=True, borders_outerV=True,
                        borders_outerH=True, borders_innerH=True,
                        resizable=True):
@@ -399,7 +410,7 @@ def _rebuild_display(tab_tag: str) -> None:
             multiline=True,
             readonly=True,
             width=-1,
-            height=160,
+            height=-1,          # 나머지 공간 전부 채움
             default_value="(0 items)",
             parent=dg,
         )

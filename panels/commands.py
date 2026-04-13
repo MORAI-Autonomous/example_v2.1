@@ -229,7 +229,7 @@ def build(parent: int | str) -> None:
                              default_value=0.0, width=-1, overlay="")
 
         # ── File Playback ──────────────────────────────────
-        _section("FILE PLAYBACK")
+        _section("FILE PLAYBACK (Fixed Step Mode)")
 
         # Browse : [파일 선택...]
         with dpg.group(horizontal=True):
@@ -251,7 +251,7 @@ def build(parent: int | str) -> None:
             dpg.add_text("Control   :", color=(180, 180, 180, 255))
             dpg.add_button(label="▶ Play", tag="fp_btn_play", callback=_on_fp_play)
             dpg.add_button(label="■ Stop", tag="fp_btn_stop", callback=_on_fp_stop)
-            dpg.add_text("", tag="fp_status", color=(160, 160, 160, 255))
+            dpg.add_text(" ", tag="fp_status", color=(160, 160, 160, 255))
 
         dpg.add_progress_bar(tag="fp_progress_bar",
                              default_value=0.0, width=-1, overlay="")
