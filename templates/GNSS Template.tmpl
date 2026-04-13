@@ -1,0 +1,84 @@
+{
+	"version": "1.0.0-alpha",
+	"messageTemplate":
+	{
+		"name": "GNSS Template",
+		"isControl": false,
+		"isSensor": true,
+		"description": "",
+		"segmentList": [
+			{
+				"type": "FIELDS",
+				"relationName": "GNSSEntity",
+				"fieldList": [
+					{
+						"name": "seconds",
+						"relationName": "GNSSEntity",
+						"variableName": "time_stamp.seconds",
+						"variableType": "INT64"
+					},
+					{
+						"name": "nanos",
+						"relationName": "GNSSEntity",
+						"variableName": "time_stamp.nanos",
+						"variableType": "INT32"
+					},
+					{
+						"name": "eid",
+						"relationName": "GNSSEntity",
+						"variableName": "gnss_attributes.ellipsoid.eid",
+						"variableType": "INT32"
+					},
+					{
+						"name": "equatorial_radius",
+						"relationName": "GNSSEntity",
+						"variableName": "gnss_attributes.ellipsoid.equatorial_radius",
+						"variableType": "DOUBLE"
+					},
+					{
+						"name": "inverse_flattening",
+						"relationName": "GNSSEntity",
+						"variableName": "gnss_attributes.ellipsoid.inverse_flattening",
+						"variableType": "DOUBLE"
+					},
+					{
+						"name": "north",
+						"relationName": "GNSSEntity",
+						"variableName": "gnss_attributes.utm.north",
+						"variableType": "DOUBLE"
+					},
+					{
+						"name": "east",
+						"relationName": "GNSSEntity",
+						"variableName": "gnss_attributes.utm.east",
+						"variableType": "DOUBLE"
+					},
+					{
+						"name": "zone",
+						"relationName": "GNSSEntity",
+						"variableName": "gnss_attributes.utm.zone",
+						"variableType": "INT32"
+					},
+					{
+						"name": "longitude",
+						"relationName": "GNSSEntity",
+						"variableName": "gnss_attributes.longitude",
+						"variableType": "DOUBLE"
+					},
+					{
+						"name": "latitude",
+						"relationName": "GNSSEntity",
+						"variableName": "gnss_attributes.latitude",
+						"variableType": "DOUBLE"
+					},
+					{
+						"name": "altitude",
+						"relationName": "GNSSEntity",
+						"variableName": "gnss_attributes.altitude",
+						"variableType": "DOUBLE"
+					}
+				]
+			}
+		]
+	}
+}

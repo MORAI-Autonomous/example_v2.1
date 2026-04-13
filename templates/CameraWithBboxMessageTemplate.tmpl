@@ -1,0 +1,521 @@
+{
+  "version": "1.0.0-alpha",
+  "messageTemplate": {
+    "name": "CameraSensorMessageTemplate",
+	  "isControl": "",
+    "isSensor": true,
+    "description" : "",
+    "segmentList": [
+      {
+        "type": "fields",
+        "relationName": "SensorEntity",
+        "fieldList": [
+          {
+            "name": "image size",
+            "relationName": "SensorEntity",
+            "variableName": "camera_attributes.camera_sensor_data.size",
+            "variableType": "int32",
+            "length": 0,
+            "defaultValue": "",
+            "equation": ""
+          },
+          {
+            "name": "image datas",
+            "relationName": "SensorEntity",
+            "variableName": "camera_attributes.camera_sensor_data.image_data",
+            "variableType": "bytes",
+            "length": 0,
+            "defaultValue": "",
+            "equation": "",
+            "fieldOutputFormat": "JPG"
+          }
+        ]
+      },
+      {
+        "type": "repeat",
+        "relationName": "SensorEntity",
+        "repeatFieldName": "camera_attributes.bound_box_data",
+        "groupOutputFormat": "JSON",
+        "fieldList": [
+          {
+            "name": "bounding_box_2d.min.x",      
+            "relationName": "SensorEntity",
+            "variableName": "bounding_box_2d.min.x",
+            "variableType": "float",
+            "length": 0,
+            "defaultValue": "",
+            "equation": ""
+          },
+          {
+            "name": "bounding_box_2d.min.y",      
+            "relationName": "SensorEntity",
+            "variableName": "bounding_box_2d.min.y",
+            "variableType": "float",
+            "length": 0,
+            "defaultValue": "",
+            "equation": ""
+          },
+          {
+            "name": "bounding_box_2d.max.x",      
+            "relationName": "SensorEntity",
+            "variableName": "bounding_box_2d.max.x",
+            "variableType": "float",
+            "length": 0,
+            "defaultValue": "",
+            "equation": ""
+          },
+          {
+            "name": "bounding_box_2d.max.y",
+            "relationName": "SensorEntity",
+            "variableName": "bounding_box_2d.max.y",
+            "variableType": "float",
+            "length": 0,
+            "defaultValue": "",
+            "equation": ""
+          },
+          {
+            "name": "bounding_box_3d.center_point.x",
+            "relationName": "SensorEntity",
+            "variableName": "bounding_box_3d.center_point.x",
+            "variableType": "float",
+            "length": 0,
+            "defaultValue": "",
+            "equation": ""
+          },
+          {
+            "name": "bounding_box_3d.center_point.y",
+            "relationName": "SensorEntity",
+            "variableName": "bounding_box_3d.center_point.y",
+            "variableType": "float",
+            "length": 0,
+            "defaultValue": "",
+            "equation": ""
+          },
+          {
+            "name": "bounding_box_3d.center_point.z",
+            "relationName": "SensorEntity",
+            "variableName": "bounding_box_3d.center_point.z",
+            "variableType": "float",
+            "length": 0,
+            "defaultValue": "",
+            "equation": ""
+          },
+          {
+            "name": "bounding_box_3d.orientation.x",
+            "relationName": "SensorEntity",
+            "variableName": "bounding_box_3d.orientation.x",
+            "variableType": "double",
+            "length": 0,
+            "defaultValue": "",
+            "equation": ""
+          },
+          {
+            "name": "bounding_box_3d.orientation.y",
+            "relationName": "SensorEntity",
+            "variableName": "bounding_box_3d.orientation.y",
+            "variableType": "double",
+            "length": 0,
+            "defaultValue": "",
+            "equation": ""
+          },
+          {
+            "name": "bounding_box_3d.orientation.z",
+            "relationName": "SensorEntity",
+            "variableName": "bounding_box_3d.orientation.z",
+            "variableType": "double",
+            "length": 0,
+            "defaultValue": "",
+            "equation": ""
+          },
+          {
+            "name": "bounding_box_3d.dimension.x",
+            "relationName": "SensorEntity",
+            "variableName": "bounding_box_3d.dimension.x",
+            "variableType": "float",
+            "length": 0,
+            "defaultValue": "",
+            "equation": ""
+          },
+          {
+            "name": "bounding_box_3d.dimension.y",
+            "relationName": "SensorEntity",
+            "variableName": "bounding_box_3d.dimension.y",
+            "variableType": "float",
+            "length": 0,
+            "defaultValue": "",
+            "equation": ""
+          },
+          {
+            "name": "bounding_box_3d.dimension.z",
+            "relationName": "SensorEntity",
+            "variableName": "bounding_box_3d.dimension.z",
+            "variableType": "float",
+            "length": 0,
+            "defaultValue": "",
+            "equation": ""
+          },
+          {
+            "name": "bounding_box_3D8_points.corner_points_1.x",
+            "relationName": "SensorEntity",
+            "variableName": "bounding_box_3D8_points.corner_points_1.x",
+            "variableType": "float",
+            "length": 0,
+            "defaultValue": "",
+            "equation": ""
+          },
+          {
+            "name": "bounding_box_3D8_points.corner_points_1.y",
+            "relationName": "SensorEntity",
+            "variableName": "bounding_box_3D8_points.corner_points_1.y",
+            "variableType": "float",
+            "length": 0,
+            "defaultValue": "",
+            "equation": ""
+          },
+          {
+            "name": "bounding_box_3D8_points.corner_points_1.z",
+            "relationName": "SensorEntity",
+            "variableName": "bounding_box_3D8_points.corner_points_1.z",
+            "variableType": "float",
+            "length": 0,
+            "defaultValue": "",
+            "equation": ""
+          },
+          {
+            "name": "bounding_box_3D8_points.corner_points_2.x",
+            "relationName": "SensorEntity",
+            "variableName": "bounding_box_3D8_points.corner_points_2.x",
+            "variableType": "float",
+            "length": 0,
+            "defaultValue": "",
+            "equation": ""
+          },
+          {
+            "name": "bounding_box_3D8_points.corner_points_2.y",
+            "relationName": "SensorEntity",
+            "variableName": "bounding_box_3D8_points.corner_points_2.y",
+            "variableType": "float",
+            "length": 0,
+            "defaultValue": "",
+            "equation": ""
+          },
+          {
+            "name": "bounding_box_3D8_points.corner_points_2.z",
+            "relationName": "SensorEntity",
+            "variableName": "bounding_box_3D8_points.corner_points_2.z",
+            "variableType": "float",
+            "length": 0,
+            "defaultValue": "",
+            "equation": ""
+          },
+          {
+            "name": "bounding_box_3D8_points.corner_points_3.x",
+            "relationName": "SensorEntity",
+            "variableName": "bounding_box_3D8_points.corner_points_3.x",
+            "variableType": "float",
+            "length": 0,
+            "defaultValue": "",
+            "equation": ""
+          },
+          {
+            "name": "bounding_box_3D8_points.corner_points_3.y",
+            "relationName": "SensorEntity",
+            "variableName": "bounding_box_3D8_points.corner_points_3.y",
+            "variableType": "float",
+            "length": 0,
+            "defaultValue": "",
+            "equation": ""
+          },
+          {
+            "name": "bounding_box_3D8_points.corner_points_3.z",
+            "relationName": "SensorEntity",
+            "variableName": "bounding_box_3D8_points.corner_points_3.z",
+            "variableType": "float",
+            "length": 0,
+            "defaultValue": "",
+            "equation": ""
+          },
+          {
+            "name": "bounding_box_3D8_points.corner_points_4.x",
+            "relationName": "SensorEntity",
+            "variableName": "bounding_box_3D8_points.corner_points_4.x",
+            "variableType": "float",
+            "length": 0,
+            "defaultValue": "",
+            "equation": ""
+          },
+          {
+            "name": "bounding_box_3D8_points.corner_points_4.y",
+            "relationName": "SensorEntity",
+            "variableName": "bounding_box_3D8_points.corner_points_4.y",
+            "variableType": "float",
+            "length": 0,
+            "defaultValue": "",
+            "equation": ""
+          },
+          {
+            "name": "bounding_box_3D8_points.corner_points_4.z",
+            "relationName": "SensorEntity",
+            "variableName": "bounding_box_3D8_points.corner_points_4.z",
+            "variableType": "float",
+            "length": 0,
+            "defaultValue": "",
+            "equation": ""
+          },
+          {
+            "name": "bounding_box_3D8_points.corner_points_5.x",
+            "relationName": "SensorEntity",
+            "variableName": "bounding_box_3D8_points.corner_points_5.x",
+            "variableType": "float",
+            "length": 0,
+            "defaultValue": "",
+            "equation": ""
+          },
+          {
+            "name": "bounding_box_3D8_points.corner_points_5.y",
+            "relationName": "SensorEntity",
+            "variableName": "bounding_box_3D8_points.corner_points_5.y",
+            "variableType": "float",
+            "length": 0,
+            "defaultValue": "",
+            "equation": ""
+          },
+          {
+            "name": "bounding_box_3D8_points.corner_points_5.z",
+            "relationName": "SensorEntity",
+            "variableName": "bounding_box_3D8_points.corner_points_5.z",
+            "variableType": "float",
+            "length": 0,
+            "defaultValue": "",
+            "equation": ""
+          },
+          {
+            "name": "bounding_box_3D8_points.corner_points_6.x",
+            "relationName": "SensorEntity",
+            "variableName": "bounding_box_3D8_points.corner_points_6.x",
+            "variableType": "float",
+            "length": 0,
+            "defaultValue": "",
+            "equation": ""
+          },
+          {
+            "name": "bounding_box_3D8_points.corner_points_6.y",
+            "relationName": "SensorEntity",
+            "variableName": "bounding_box_3D8_points.corner_points_6.y",
+            "variableType": "float",
+            "length": 0,
+            "defaultValue": "",
+            "equation": ""
+          },
+          {
+            "name": "bounding_box_3D8_points.corner_points_6.z",
+            "relationName": "SensorEntity",
+            "variableName": "bounding_box_3D8_points.corner_points_6.z",
+            "variableType": "float",
+            "length": 0,
+            "defaultValue": "",
+            "equation": ""
+          },
+          {
+            "name": "bounding_box_3D8_points.corner_points_7.x",
+            "relationName": "SensorEntity",
+            "variableName": "bounding_box_3D8_points.corner_points_7.x",
+            "variableType": "float",
+            "length": 0,
+            "defaultValue": "",
+            "equation": ""
+          },
+          {
+            "name": "bounding_box_3D8_points.corner_points_7.y",
+            "relationName": "SensorEntity",
+            "variableName": "bounding_box_3D8_points.corner_points_7.y",
+            "variableType": "float",
+            "length": 0,
+            "defaultValue": "",
+            "equation": ""
+          },
+          {
+            "name": "bounding_box_3D8_points.corner_points_7.z",
+            "relationName": "SensorEntity",
+            "variableName": "bounding_box_3D8_points.corner_points_7.z",
+            "variableType": "float",
+            "length": 0,
+            "defaultValue": "",
+            "equation": ""
+          },
+          {
+            "name": "bounding_box_3D8_points.corner_points_8.x",
+            "relationName": "SensorEntity",
+            "variableName": "bounding_box_3D8_points.corner_points_8.x",
+            "variableType": "float",
+            "length": 0,
+            "defaultValue": "",
+            "equation": ""
+          },
+          {
+            "name": "bounding_box_3D8_points.corner_points_8.y",
+            "relationName": "SensorEntity",
+            "variableName": "bounding_box_3D8_points.corner_points_8.y",
+            "variableType": "float",
+            "length": 0,
+            "defaultValue": "",
+            "equation": ""
+          },
+          {
+            "name": "bounding_box_3D8_points.corner_points_8.z",
+            "relationName": "SensorEntity",
+            "variableName": "bounding_box_3D8_points.corner_points_8.z",
+            "variableType": "float",
+            "length": 0,
+            "defaultValue": "",
+            "equation": ""
+          },
+          {
+            "name": "bounding_box_3D8_points.projected_corner_points_1.x",
+            "relationName": "SensorEntity",
+            "variableName": "bounding_box_3D8_points.projected_corner_points_1.x",
+            "variableType": "float",
+            "length": 0,
+            "defaultValue": "",
+            "equation": ""
+          },
+          {
+            "name": "bounding_box_3D8_points.projected_corner_points_1.y",
+            "relationName": "SensorEntity",
+            "variableName": "bounding_box_3D8_points.projected_corner_points_1.y",
+            "variableType": "float",
+            "length": 0,
+            "defaultValue": "",
+            "equation": ""
+          },
+          {
+            "name": "bounding_box_3D8_points.projected_corner_points_2.x",
+            "relationName": "SensorEntity",
+            "variableName": "bounding_box_3D8_points.projected_corner_points_2.x",
+            "variableType": "float",
+            "length": 0,
+            "defaultValue": "",
+            "equation": ""
+          },
+          {
+            "name": "bounding_box_3D8_points.projected_corner_points_2.y",
+            "relationName": "SensorEntity",
+            "variableName": "bounding_box_3D8_points.projected_corner_points_2.y",
+            "variableType": "float",
+            "length": 0,
+            "defaultValue": "",
+            "equation": ""
+          },
+          {
+            "name": "bounding_box_3D8_points.projected_corner_points_3.x",
+            "relationName": "SensorEntity",
+            "variableName": "bounding_box_3D8_points.projected_corner_points_3.x",
+            "variableType": "float",
+            "length": 0,
+            "defaultValue": "",
+            "equation": ""
+          },
+          {
+            "name": "bounding_box_3D8_points.projected_corner_points_3.y",
+            "relationName": "SensorEntity",
+            "variableName": "bounding_box_3D8_points.projected_corner_points_3.y",
+            "variableType": "float",
+            "length": 0,
+            "defaultValue": "",
+            "equation": ""
+          },
+          {
+            "name": "bounding_box_3D8_points.projected_corner_points_4.x",
+            "relationName": "SensorEntity",
+            "variableName": "bounding_box_3D8_points.projected_corner_points_4.x",
+            "variableType": "float",
+            "length": 0,
+            "defaultValue": "",
+            "equation": ""
+          },
+          {
+            "name": "bounding_box_3D8_points.projected_corner_points_4.y",
+            "relationName": "SensorEntity",
+            "variableName": "bounding_box_3D8_points.projected_corner_points_4.y",
+            "variableType": "float",
+            "length": 0,
+            "defaultValue": "",
+            "equation": ""
+          },
+          {
+            "name": "bounding_box_3D8_points.projected_corner_points_5.x",
+            "relationName": "SensorEntity",
+            "variableName": "bounding_box_3D8_points.projected_corner_points_5.x",
+            "variableType": "float",
+            "length": 0,
+            "defaultValue": "",
+            "equation": ""
+          },
+          {
+            "name": "bounding_box_3D8_points.projected_corner_points_5.y",
+            "relationName": "SensorEntity",
+            "variableName": "bounding_box_3D8_points.projected_corner_points_5.y",
+            "variableType": "float",
+            "length": 0,
+            "defaultValue": "",
+            "equation": ""
+          },
+          {
+            "name": "bounding_box_3D8_points.projected_corner_points_6.x",
+            "relationName": "SensorEntity",
+            "variableName": "bounding_box_3D8_points.projected_corner_points_6.x",
+            "variableType": "float",
+            "length": 0,
+            "defaultValue": "",
+            "equation": ""
+          },
+          {
+            "name": "bounding_box_3D8_points.projected_corner_points_6.y",
+            "relationName": "SensorEntity",
+            "variableName": "bounding_box_3D8_points.projected_corner_points_6.y",
+            "variableType": "float",
+            "length": 0,
+            "defaultValue": "",
+            "equation": ""
+          },
+          {
+            "name": "bounding_box_3D8_points.projected_corner_points_7.x",
+            "relationName": "SensorEntity",
+            "variableName": "bounding_box_3D8_points.projected_corner_points_7.x",
+            "variableType": "float",
+            "length": 0,
+            "defaultValue": "",
+            "equation": ""
+          },
+          {
+            "name": "bounding_box_3D8_points.projected_corner_points_7.y",
+            "relationName": "SensorEntity",
+            "variableName": "bounding_box_3D8_points.projected_corner_points_7.y",
+            "variableType": "float",
+            "length": 0,
+            "defaultValue": "",
+            "equation": ""
+          },
+          {
+            "name": "bounding_box_3D8_points.projected_corner_points_8.x",
+            "relationName": "SensorEntity",
+            "variableName": "bounding_box_3D8_points.projected_corner_points_8.x",
+            "variableType": "float",
+            "length": 0,
+            "defaultValue": "",
+            "equation": ""
+          },
+          {
+            "name": "bounding_box_3D8_points.projected_corner_points_8.y",
+            "relationName": "SensorEntity",
+            "variableName": "bounding_box_3D8_points.projected_corner_points_8.y",
+            "variableType": "float",
+            "length": 0,
+            "defaultValue": "",
+            "equation": ""
+          }
+        ]
+      }
+    ]
+  }  
+}

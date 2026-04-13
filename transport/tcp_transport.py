@@ -391,7 +391,7 @@ def parse_active_suite_status_payload(payload: bytes) -> Optional[Dict[str, Any]
         "scenario_list":        scenario_list,
     }
 
-def parse_scenario_status_payload(payload: bytes) -> dict | None:
+def parse_scenario_status_payload(payload: bytes) -> Optional[Dict[str, Any]]:
     try:
         # payload = [16]~[27], 총 12바이트
         # result_code(4) + detail_code(4) + state(4)

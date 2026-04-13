@@ -1,0 +1,164 @@
+{
+	"version": "1.0.0-alpha",
+	"messageTemplate":
+	{
+		"name": "Detected Object",
+		"isControl": false,
+		"isSensor": true,
+		"description": "",
+		"segmentList": [
+			{
+				"type": "FIELDS",
+				"relationName": "GroundTruthEntity",
+				"fieldList": [
+					{
+						"name": "seconds",
+						"relationName": "GroundTruthEntity",
+						"variableName": "time_stamp.seconds",
+						"variableType": "INT64"
+					},
+					{
+						"name": "nanos",
+						"relationName": "GroundTruthEntity",
+						"variableName": "time_stamp.nanos",
+						"variableType": "INT32"
+					},
+					{
+						"name": "object_count",
+						"relationName": "GroundTruthEntity",
+						"variableName": "object_count",
+						"variableType": "INT32"
+					}
+				]
+			},
+			{
+				"type": "REPEAT",
+				"relationName": "GroundTruthEntity",
+				"repeatFieldName": "object_datas",
+				"fieldList": [
+					{
+						"name": "entity_id",
+						"relationName": "GroundTruthEntity",
+						"variableName": "entity_id",
+						"variableType": "STRING",
+						"length": 24
+					},
+					{
+						"name": "object_type",
+						"relationName": "GroundTruthEntity",
+						"variableName": "object_type",
+						"variableType": "ENUM"
+					},
+					{
+						"name": "x",
+						"relationName": "GroundTruthEntity",
+						"variableName": "object_transform.location.x",
+						"variableType": "FLOAT"
+					},
+					{
+						"name": "y",
+						"relationName": "GroundTruthEntity",
+						"variableName": "object_transform.location.y",
+						"variableType": "FLOAT"
+					},
+					{
+						"name": "z",
+						"relationName": "GroundTruthEntity",
+						"variableName": "object_transform.location.z",
+						"variableType": "FLOAT"
+					},
+					{
+						"name": "x",
+						"relationName": "GroundTruthEntity",
+						"variableName": "object_transform.rotation.x",
+						"variableType": "FLOAT"
+					},
+					{
+						"name": "y",
+						"relationName": "GroundTruthEntity",
+						"variableName": "object_transform.rotation.y",
+						"variableType": "FLOAT"
+					},
+					{
+						"name": "z",
+						"relationName": "GroundTruthEntity",
+						"variableName": "object_transform.rotation.z",
+						"variableType": "FLOAT"
+					},
+					{
+						"name": "length",
+						"relationName": "GroundTruthEntity",
+						"variableName": "dimensions.length",
+						"variableType": "FLOAT"
+					},
+					{
+						"name": "width",
+						"relationName": "GroundTruthEntity",
+						"variableName": "dimensions.width",
+						"variableType": "FLOAT"
+					},
+					{
+						"name": "height",
+						"relationName": "GroundTruthEntity",
+						"variableName": "dimensions.height",
+						"variableType": "FLOAT"
+					},
+					{
+						"name": "front",
+						"relationName": "GroundTruthEntity",
+						"variableName": "vehicle.vehicle_spec.overhang.front",
+						"variableType": "FLOAT"
+					},
+					{
+						"name": "rear",
+						"relationName": "GroundTruthEntity",
+						"variableName": "vehicle.vehicle_spec.overhang.rear",
+						"variableType": "FLOAT"
+					},
+					{
+						"name": "wheel_base",
+						"relationName": "GroundTruthEntity",
+						"variableName": "vehicle.vehicle_spec.wheel_base",
+						"variableType": "FLOAT"
+					},
+					{
+						"name": "x",
+						"relationName": "GroundTruthEntity",
+						"variableName": "vehicle.vehicle_state.velocity.x",
+						"variableType": "FLOAT"
+					},
+					{
+						"name": "y",
+						"relationName": "GroundTruthEntity",
+						"variableName": "vehicle.vehicle_state.velocity.y",
+						"variableType": "FLOAT"
+					},
+					{
+						"name": "z",
+						"relationName": "GroundTruthEntity",
+						"variableName": "vehicle.vehicle_state.velocity.z",
+						"variableType": "FLOAT"
+					},
+					{
+						"name": "x",
+						"relationName": "GroundTruthEntity",
+						"variableName": "vehicle.vehicle_state.acceleration.x",
+						"variableType": "FLOAT"
+					},
+					{
+						"name": "y",
+						"relationName": "GroundTruthEntity",
+						"variableName": "vehicle.vehicle_state.acceleration.y",
+						"variableType": "FLOAT"
+					},
+					{
+						"name": "z",
+						"relationName": "GroundTruthEntity",
+						"variableName": "vehicle.vehicle_state.acceleration.z",
+						"variableType": "FLOAT"
+					}
+				]
+			}
+		]
+	}
+}

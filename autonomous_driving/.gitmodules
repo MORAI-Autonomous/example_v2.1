@@ -1,0 +1,3 @@
+[submodule "mgeo/lib/mgeo"]
+	path = mgeo/lib/mgeo
+	url = https://github.com/MORAI-Autonomous/MORAI-MGeoModule.git

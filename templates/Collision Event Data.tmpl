@@ -1,0 +1,172 @@
+{
+	"version": "1.0.0-alpha",
+	"messageTemplate":
+	{
+		"name": "Collision Event Data",
+		"MessageType": "Detected",
+		"isControl": false,
+		"isSensor": false,
+		"description": "",
+		"segmentList": [
+			{
+				"type": "FIELDS",
+				"relationName": "GroundVehicleEntity",
+				"fieldList": [
+					{
+						"name": "entity_id",
+						"relationName": "GroundVehicleEntity",
+						"variableName": "id",
+						"variableType": "STRING",
+						"length": 24
+					},
+					{
+						"name": "collision_object_count",
+						"relationName": "GroundVehicleEntity",
+						"variableName": "collision_event_data.collision_object_count",
+						"variableType": "UINT32"
+					}
+				]
+			},
+			{
+				"type": "repeat",
+        		"relationName": "GroundVehicleEntity",
+        		"repeatFieldName": "collision_event_data.collision_objects",        		
+				"fieldList": [								
+					{
+						"name": "collision_object_id",
+						"relationName": "GroundVehicleEntity",
+						"variableName": "collision_object_id",
+						"variableType": "STRING",
+						"length": 24
+					},
+					{
+						"name": "object_type",
+						"relationName": "GroundVehicleEntity",
+						"variableName": "object_type",
+						"variableType": "ENUM"
+					},
+					{
+						"name": "seconds",
+						"relationName": "GroundVehicleEntity",
+						"variableName": "collision_time.seconds",
+						"variableType": "INT64"
+					},
+					{
+						"name": "nanos",
+						"relationName": "GroundVehicleEntity",
+						"variableName": "collision_time.nanos",
+						"variableType": "INT32"
+					},
+					{
+						"name": "x",
+						"relationName": "GroundVehicleEntity",
+						"variableName": "object_transform.location.x",
+						"variableType": "FLOAT"
+					},
+					{
+						"name": "y",
+						"relationName": "GroundVehicleEntity",
+						"variableName": "object_transform.location.y",
+						"variableType": "FLOAT"
+					},
+					{
+						"name": "z",
+						"relationName": "GroundVehicleEntity",
+						"variableName": "object_transform.location.z",
+						"variableType": "FLOAT"
+					},
+					{
+						"name": "x",
+						"relationName": "GroundVehicleEntity",
+						"variableName": "object_transform.rotation.x",
+						"variableType": "FLOAT"
+					},
+					{
+						"name": "y",
+						"relationName": "GroundVehicleEntity",
+						"variableName": "object_transform.rotation.y",
+						"variableType": "FLOAT"
+					},
+					{
+						"name": "z",
+						"relationName": "GroundVehicleEntity",
+						"variableName": "object_transform.rotation.z",
+						"variableType": "FLOAT"
+					},
+					{
+						"name": "length",
+						"relationName": "GroundVehicleEntity",
+						"variableName": "dimensions.length",
+						"variableType": "FLOAT"
+					},
+					{
+						"name": "width",
+						"relationName": "GroundVehicleEntity",
+						"variableName": "dimensions.width",
+						"variableType": "FLOAT"
+					},
+					{
+						"name": "height",
+						"relationName": "GroundVehicleEntity",
+						"variableName": "dimensions.height",
+						"variableType": "FLOAT"
+					},
+					{
+						"name": "x",
+						"relationName": "GroundVehicleEntity",
+						"variableName": "vehicle.vehicle_state.velocity.x",
+						"variableType": "FLOAT"
+					},
+					{
+						"name": "y",
+						"relationName": "GroundVehicleEntity",
+						"variableName": "vehicle.vehicle_state.velocity.y",
+						"variableType": "FLOAT"
+					},
+					{
+						"name": "z",
+						"relationName": "GroundVehicleEntity",
+						"variableName": "vehicle.vehicle_state.velocity.z",
+						"variableType": "FLOAT"
+					},
+					{
+						"name": "x",
+						"relationName": "GroundVehicleEntity",
+						"variableName": "collision_jects.vehicle.vehicle_state.acceleration.x",
+						"variableType": "FLOAT"
+					},
+					{
+						"name": "y",
+						"relationName": "GroundVehicleEntity",
+						"variableName": "vehicle.vehicle_state.acceleration.y",
+						"variableType": "FLOAT"
+					},
+					{
+						"name": "z",
+						"relationName": "GroundVehicleEntity",
+						"variableName": "vehicle.vehicle_state.acceleration.z",
+						"variableType": "FLOAT"
+					},
+					{
+						"name": "front",
+						"relationName": "GroundVehicleEntity",
+						"variableName": "vehicle.vehicle_spec.overhang.front",
+						"variableType": "FLOAT"
+					},
+					{
+						"name": "rear",
+						"relationName": "GroundVehicleEntity",
+						"variableName": "vehicle.vehicle_spec.overhang.rear",
+						"variableType": "FLOAT"
+					},
+					{
+						"name": "wheel_base",
+						"relationName": "GroundVehicleEntity",
+						"variableName": "vehicle.vehicle_spec.wheel_base",
+						"variableType": "FLOAT"
+					}
+				]
+			}
+		]
+	}
+}

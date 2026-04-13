@@ -12,7 +12,7 @@ _lines: list[tuple] = []   # (text, color)
 _search_kw  = ""
 
 
-def build(parent: int | str) -> None:
+def build(parent) -> None:
     with dpg.group(parent=parent):
         # toolbar
         with dpg.group(horizontal=True):

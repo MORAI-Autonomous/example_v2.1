@@ -1,101 +1,162 @@
 # panels/monitor.py
-import math
+"""
+Template-driven UDP monitor panel.
+
+Layout (inside mon_scroll child_window)
+───────────────────────────────────────
+┌──────────────────────────────────┐  (child_window height=240)
+│  UDP Monitor                     │
+│  Templates                       │
+│  [ listbox ]                     │
+│  [▶ Open]  [▲ Refresh]          │
+└──────────────────────────────────┘
+┌──────────────────────────────────┐  (child_window height=-1)
+│ ┌─ Vehicle Info ─┬─ IMU ─┐       │
+│ │  IP/Port/...  │        │       │
+│ │  Fields table │        │       │
+│ └───────────────┘        │       │
+└──────────────────────────────────┘
+"""
+import json
+import os
 import socket
 import threading
-from collections import deque
+import time
+from typing import Any, Dict, List, Optional
 
 import dearpygui.dearpygui as dpg
 
 import utils.ui_queue as ui_queue
-from receivers.vehicle_info_receiver import parse_vehicle_info_payload as _parse_vi
-from receivers.vehicle_info_with_wheel_receiver import parse_vehicle_info_payload as _parse_vi_wheel
-from receivers.collision_event_receiver import parse_collision_event_payload as _parse_col
+from receivers.template_parser import TemplateParser
 
-# ─── Receiver registry ──────────────────────────────────────────
-_MAX_SPEED = 50.0
+# ── Paths ─────────────────────────────────────────────────────────────
+_BASE_DIR  = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_TMPL_DIR  = os.path.join(_BASE_DIR, "templates")
+_STATE_FILE = os.path.join(_BASE_DIR, "config", "monitor_state.json")
 
-_NAMES = [
-    "vehicle_info_receiver",
-    "vehicle_info_with_wheel_receiver",
-    "collision_event_receiver",
-]
+# 하단 탭바 태그 (build() 에서 생성, _open_monitor() 에서 참조)
+_INNER_TABBAR = "mon_inner_tabbar"
+_HINT_TAG     = "mon_no_monitors_hint"
 
-_DEFAULTS = {
-    "vehicle_info_receiver":            ("127.0.0.1", 9091),
-    "vehicle_info_with_wheel_receiver": ("127.0.0.1", 9091),
-    "collision_event_receiver":         ("127.0.0.1", 9094),
-}
+# ── Per-monitor state ─────────────────────────────────────────────────
+_monitors: Dict[str, dict] = {}
+_win_counter: int = 0
 
-_PARSE = {
-    "vehicle_info_receiver":            _parse_vi,
-    "vehicle_info_with_wheel_receiver": _parse_vi_wheel,
-    "collision_event_receiver":         _parse_col,
-}
+_UPDATE_INTERVAL = 0.05   # 20 Hz UI refresh cap
 
-# ─── Per-receiver persistent state ──────────────────────────────
-_recv_state = {
-    name: {
-        "ip":      _DEFAULTS[name][0],
-        "port":    _DEFAULTS[name][1],
-        "running": False,
-        "thread":  None,
-        "sock":    None,
-    }
-    for name in _NAMES
-}
-
-_current: str = "vehicle_info_with_wheel_receiver"   # 기본 선택
-
-# ─── 롤링 버퍼 ───────────────────────────────────────────────────
-_BUF_SIZE = 200
-_yaw_buf: deque = deque(maxlen=_BUF_SIZE)
-_acc_buf: deque = deque(maxlen=_BUF_SIZE)
-
-# ─── UI tag map ─────────────────────────────────────────────────
+# ── Static tags ───────────────────────────────────────────────────────
 _T = {
-    # Control bar
-    "combo":        "mon_combo",
-    "ip":           "mon_ip",
-    "port":         "mon_port",
-    "btn_start":    "mon_btn_start",
-    "btn_stop":     "mon_btn_stop",
-    "status":       "mon_status",
-    # Vehicle Info display group
-    "vi_group":     "mon_vi_group",
-    "vi_id":        "mon_vi_id",
-    "vi_time":      "mon_vi_time",
-    "vi_loc_x":     "mon_vi_loc_x",  "vi_loc_y": "mon_vi_loc_y",  "vi_loc_z": "mon_vi_loc_z",
-    "vi_rot_x":     "mon_vi_rot_x",  "vi_rot_y": "mon_vi_rot_y",  "vi_rot_z": "mon_vi_rot_z",
-    "vi_vel_x":     "mon_vi_vel_x",  "vi_vel_y": "mon_vi_vel_y",  "vi_vel_z": "mon_vi_vel_z",
-    "vi_acc_x":     "mon_vi_acc_x",  "vi_acc_y": "mon_vi_acc_y",  "vi_acc_z": "mon_vi_acc_z",
-    "vi_ang_x":     "mon_vi_ang_x",  "vi_ang_y": "mon_vi_ang_y",  "vi_ang_z": "mon_vi_ang_z",
-    "vi_thr":       "mon_vi_thr",
-    "vi_brk":       "mon_vi_brk",
-    "vi_steer":     "mon_vi_steer",
-    "vi_speed_bar": "mon_vi_speed_bar",
-    "vi_wheel_grp": "mon_vi_wheel_grp",   # shown only for vi_wheel receiver
-    "vi_wheel_items": "mon_vi_wheel_items",
-    # Yaw Rate plot
-    "yaw_plot":     "mon_yaw_plot",
-    "yaw_x_axis":   "mon_yaw_x_axis",
-    "yaw_y_axis":   "mon_yaw_y_axis",
-    "yaw_series":   "mon_yaw_series",
-    # Acceleration X plot
-    "acc_plot":     "mon_acc_plot",
-    "acc_x_axis":   "mon_acc_x_axis",
-    "acc_y_axis":   "mon_acc_y_axis",
-    "acc_series":   "mon_acc_series",
-    # Collision display group
-    "col_group":    "mon_col_group",
-    "col_entity":   "mon_col_entity",
-    "col_count":    "mon_col_count",
-    "col_items":    "mon_col_items",
+    "listbox": "mon_listbox",
 }
 
+_DEFAULT_PORT = 9091
 
-# ─── Generic UDP receiver thread ────────────────────────────────
+
+# ═══════════════════════════════════════════════════════════════════════
+#  Shared helpers
+# ═══════════════════════════════════════════════════════════════════════
+
+def _get_templates() -> List[str]:
+    if not os.path.isdir(_TMPL_DIR):
+        return []
+    return sorted(f for f in os.listdir(_TMPL_DIR) if f.lower().endswith(".tmpl"))
+
+
+def _short_label(variable_name: str, n: int = 2) -> str:
+    parts = variable_name.split(".")
+    return ".".join(parts[-n:]) if len(parts) >= n else variable_name
+
+
+def _tab_label(filename: str) -> str:
+    name = filename.replace(".tmpl", "")
+    return name if len(name) <= 22 else name[:21] + "…"
+
+
+def _make_groups(field_list: List[Dict]) -> List[Dict]:
+    groups: List[Dict] = []
+    i, total = 0, len(field_list)
+    while i < total:
+        nm = field_list[i]["name"].lower()
+
+        # xyzw
+        if (i + 3 < total and nm == "x" and
+                field_list[i+1]["name"].lower() == "y" and
+                field_list[i+2]["name"].lower() == "z" and
+                field_list[i+3]["name"].lower() == "w"):
+            vn  = field_list[i]["variable_name"]
+            pfx = vn.rsplit(".", 1)[0] if "." in vn else vn
+            groups.append({"type": "xyzw", "indices": [i, i+1, i+2, i+3],
+                            "label": _short_label(pfx), "tag": 0})
+            i += 4; continue
+
+        # xyz
+        if (i + 2 < total and nm == "x" and
+                field_list[i+1]["name"].lower() == "y" and
+                field_list[i+2]["name"].lower() == "z"):
+            vn  = field_list[i]["variable_name"]
+            pfx = vn.rsplit(".", 1)[0] if "." in vn else vn
+            groups.append({"type": "xyz", "indices": [i, i+1, i+2],
+                            "label": _short_label(pfx), "tag": 0})
+            i += 3; continue
+
+        # single
+        groups.append({"type": "single", "indices": [i],
+                        "label": _short_label(field_list[i]["variable_name"]),
+                        "tag": 0})
+        i += 1
+    return groups
+
+
+def _fmt(val: Any, var_type: str) -> str:
+    if var_type in ("FLOAT", "DOUBLE"):
+        try:
+            return f"{float(val):.4f}"
+        except Exception:
+            return str(val)
+    return str(val)
+
+
+def _format_repeat_rows(rows: List[Dict]) -> str:
+    if not rows:
+        return "(0 items)"
+    lines = [f"({len(rows)} items)"]
+    for idx, row in enumerate(rows):
+        fl = row.get("field_list", [])
+        lines.append(f"[{idx}]")
+        for g in _make_groups(fl):
+            t, ix = g["type"], g["indices"]
+            if t == "xyz":
+                i0, i1, i2 = ix
+                lines.append(
+                    f"  {g['label']}: "
+                    f"X={_fmt(fl[i0]['value'], fl[i0]['type'])}  "
+                    f"Y={_fmt(fl[i1]['value'], fl[i1]['type'])}  "
+                    f"Z={_fmt(fl[i2]['value'], fl[i2]['type'])}"
+                )
+            elif t == "xyzw":
+                i0, i1, i2, i3 = ix
+                lines.append(
+                    f"  {g['label']}: "
+                    f"X={_fmt(fl[i0]['value'], fl[i0]['type'])}  "
+                    f"Y={_fmt(fl[i1]['value'], fl[i1]['type'])}  "
+                    f"Z={_fmt(fl[i2]['value'], fl[i2]['type'])}  "
+                    f"W={_fmt(fl[i3]['value'], fl[i3]['type'])}"
+                )
+            else:
+                i0 = ix[0]
+                lines.append(
+                    f"  {g['label']}: "
+                    f"{_fmt(fl[i0]['value'], fl[i0]['type'])}"
+                )
+    return "\n".join(lines)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  UDP receiver thread
+# ═══════════════════════════════════════════════════════════════════════
+
 class _UDPThread(threading.Thread):
-    def __init__(self, sock: socket.socket, parse_fn, on_data, on_error):
+    def __init__(self, sock, parse_fn, on_data, on_error):
         super().__init__(daemon=True)
         self.sock     = sock
         self.parse_fn = parse_fn
@@ -109,384 +170,423 @@ class _UDPThread(threading.Thread):
     def run(self) -> None:
         while self.running:
             try:
-                data, addr = self.sock.recvfrom(65535)
-                parsed = self.parse_fn(data)
-                if parsed is not None and "error" not in parsed:
-                    self.on_data(parsed, addr)
+                data, _ = self.sock.recvfrom(65535)
+                parsed  = self.parse_fn(data)
+                if parsed is not None:
+                    self.on_data(parsed)
             except OSError:
                 if self.running:
-                    ui_queue.post(self.on_error)
+                    self.on_error()
                 break
 
 
-# ─── Build ──────────────────────────────────────────────────────
-def build(parent: int | str) -> None:
-    global _current
-    _current = "vehicle_info_with_wheel_receiver"
+# ═══════════════════════════════════════════════════════════════════════
+#  build()  –  panel entry point
+# ═══════════════════════════════════════════════════════════════════════
 
-    # ── 수신기 선택 콤보 ──────────────────────────────────────
-    dpg.add_text("UDP Receiver", color=(200, 200, 100, 255), parent=parent)
+def build(parent) -> None:
+    tmpls = _get_templates()
+
+    # ── 상단: child_window 없이 parent에 직접 추가 ───────────────
+    # (child_window 래퍼를 쓰면 내부 스크롤바가 생길 수 있음)
+    dpg.add_text("UDP Monitor", color=(200, 200, 100, 255), parent=parent)
     dpg.add_separator(parent=parent)
 
-    dpg.add_combo(
-        tag=_T["combo"],
-        items=_NAMES,
-        default_value=_current,
+    dpg.add_text("Templates", color=(180, 180, 180, 255), parent=parent)
+    dpg.add_listbox(
+        tag=_T["listbox"],
+        items=tmpls,
+        num_items=min(len(tmpls), 6),   # 6개 표시 → 내부 스크롤로 나머지
         width=-1,
-        callback=_on_combo,
         parent=parent,
     )
     dpg.add_spacer(height=4, parent=parent)
-
-    # ── IP / Port ─────────────────────────────────────────────
     with dpg.group(horizontal=True, parent=parent):
-        dpg.add_text("IP:", color=(160, 160, 170))
-        dpg.add_input_text(
-            tag=_T["ip"],
-            default_value=_recv_state[_current]["ip"],
-            width=130,
-        )
-        dpg.add_spacer(width=8)
-        dpg.add_text("Port:", color=(160, 160, 170))
-        dpg.add_input_int(
-            tag=_T["port"],
-            default_value=_recv_state[_current]["port"],
-            width=80,
-            step=0,
-            min_value=1,
-            max_value=65535,
-        )
-
-    # ── Start / Stop / Status ─────────────────────────────────
-    with dpg.group(horizontal=True, parent=parent):
-        dpg.add_button(label="Start", tag=_T["btn_start"],
-                       callback=_on_start, width=70)
-        dpg.add_button(label="Stop",  tag=_T["btn_stop"],
-                       callback=_on_stop,  width=70)
-        dpg.add_text("Stopped", tag=_T["status"], color=(180, 80, 80, 255))
-
+        dpg.add_button(label="▶ Open",     width=84, callback=_on_open)
+        dpg.add_button(label="▲ Refresh", width=84, callback=_on_refresh)
     dpg.add_separator(parent=parent)
 
-    # ── Vehicle Info display ──────────────────────────────────
-    with dpg.group(tag=_T["vi_group"], parent=parent, show=True):
-        dpg.add_text("Vehicle Info", color=(200, 200, 100, 255))
-        dpg.add_separator()
+    # ── 하단: 남은 공간 전체를 탭 영역으로 ─────────────────────
+    with dpg.child_window(parent=parent,
+                          height=-1, width=-1,
+                          border=True,
+                          no_scrollbar=True, no_scroll_with_mouse=True):
 
-        with dpg.group(horizontal=True):
-            dpg.add_text("ID :")
-            dpg.add_text("-", tag=_T["vi_id"])
-            dpg.add_spacer(width=20)
-            dpg.add_text("Time :")
-            dpg.add_text("-", tag=_T["vi_time"])
-
-        dpg.add_spacer(height=6)
-        _vi_section(_T["vi_group"], "Location (m)",   "vi_loc")
-        _vi_section(_T["vi_group"], "Rotation (deg)", "vi_rot")
-        _vi_section(_T["vi_group"], "Velocity (m/s)", "vi_vel")
-        _vi_section(_T["vi_group"], "Acceleration",   "vi_acc")
-        _vi_section(_T["vi_group"], "Angular Vel",    "vi_ang")
-
-        # ── Yaw Rate 실시간 플롯 ──────────────────────────────
-        dpg.add_spacer(height=6)
-        dpg.add_text("Yaw Rate  (angular_vel.Z)", color=(180, 180, 180, 255))
-        with dpg.plot(tag=_T["yaw_plot"], height=120, width=-1, no_title=True):
-            dpg.add_plot_legend()
-            dpg.add_plot_axis(dpg.mvXAxis, tag=_T["yaw_x_axis"],
-                              no_tick_labels=True)
-            with dpg.plot_axis(dpg.mvYAxis, tag=_T["yaw_y_axis"], label="deg/s"):
-                dpg.add_line_series([], [], tag=_T["yaw_series"],
-                                    label="Yaw Rate")
-            dpg.set_axis_limits(_T["yaw_y_axis"], -200.0, 200.0)
-
-        # ── Acceleration X 실시간 플롯 ────────────────────────
-        dpg.add_spacer(height=6)
-        dpg.add_text("Acceleration X  (local_acc.X)", color=(180, 180, 180, 255))
-        with dpg.plot(tag=_T["acc_plot"], height=120, width=-1, no_title=True):
-            dpg.add_plot_legend()
-            dpg.add_plot_axis(dpg.mvXAxis, tag=_T["acc_x_axis"],
-                              no_tick_labels=True)
-            with dpg.plot_axis(dpg.mvYAxis, tag=_T["acc_y_axis"], label="g"):
-                dpg.add_line_series([], [], tag=_T["acc_series"],
-                                    label="Acc X")
-            dpg.set_axis_limits(_T["acc_y_axis"], -20.0, 20.0)
-
-        dpg.add_spacer(height=6)
-        dpg.add_text("Control", color=(200, 200, 100, 255))
-        dpg.add_separator()
-        with dpg.table(header_row=True, borders_innerV=True, resizable=True):
-            dpg.add_table_column(label="Throttle")
-            dpg.add_table_column(label="Brake")
-            dpg.add_table_column(label="Steer")
-            with dpg.table_row():
-                dpg.add_text("0.000", tag=_T["vi_thr"])
-                dpg.add_text("0.000", tag=_T["vi_brk"])
-                dpg.add_text("0.000", tag=_T["vi_steer"])
-
-        dpg.add_spacer(height=4)
-        dpg.add_text("Speed")
-        dpg.add_progress_bar(
-            tag=_T["vi_speed_bar"],
-            default_value=0.0,
-            overlay="0.00 m/s",
-            width=-1,
+        # 탭이 없을 때 안내 문구
+        dpg.add_text(
+            "▲ 위에서 템플릿을 선택하고  [ ▶ Open ]  을 누르세요",
+            tag=_HINT_TAG,
+            color=(120, 120, 120, 255),
         )
 
-        # Wheel section — visible only for vi_wheel receiver
-        with dpg.group(tag=_T["vi_wheel_grp"], show=False):
-            dpg.add_spacer(height=6)
-            dpg.add_text("Wheels", color=(200, 200, 100, 255))
-            dpg.add_separator()
-            dpg.add_group(tag=_T["vi_wheel_items"])
+        # 실제 탭바 (처음엔 탭 없음)
+        dpg.add_tab_bar(tag=_INNER_TABBAR)
 
-    # ── Collision display ─────────────────────────────────────
-    with dpg.group(tag=_T["col_group"], parent=parent, show=False):
-        dpg.add_text("Collision Events", color=(200, 200, 100, 255))
-        dpg.add_separator()
-
-        with dpg.group(horizontal=True):
-            dpg.add_text("Entity:", color=(180, 180, 180, 255))
-            dpg.add_text("-", tag=_T["col_entity"])
-            dpg.add_spacer(width=16)
-            dpg.add_text("Count:", color=(180, 180, 180, 255))
-            dpg.add_text("0", tag=_T["col_count"])
-
-        dpg.add_spacer(height=4)
-        dpg.add_group(tag=_T["col_items"])
-
-    _refresh_buttons()
+    # 이전 세션 상태 복원
+    _load_state()
 
 
-# ─── Section helper ──────────────────────────────────────────────
-def _vi_section(parent, label: str, prefix: str) -> None:
-    dpg.add_text(label, color=(180, 180, 180, 255), parent=parent)
-    with dpg.table(parent=parent, header_row=True,
-                   borders_innerV=True, resizable=True):
-        for axis in ["X", "Y", "Z"]:
-            dpg.add_table_column(label=axis)
-        with dpg.table_row():
-            for axis in ["x", "y", "z"]:
-                dpg.add_text("0.000", tag=_T[f"{prefix}_{axis}"])
-    dpg.add_spacer(height=2, parent=parent)
+# ── callbacks (main panel) ────────────────────────────────────────────
+
+def _on_open(sender=None, app_data=None, user_data=None) -> None:
+    filename = dpg.get_value(_T["listbox"])
+    if filename:
+        _open_monitor(filename)
 
 
-# ─── Combo callback ──────────────────────────────────────────────
-def _on_combo(sender, app_data) -> None:
-    global _current
-    # Persist currently displayed IP/Port back to old receiver
-    _recv_state[_current]["ip"]   = dpg.get_value(_T["ip"])
-    _recv_state[_current]["port"] = dpg.get_value(_T["port"])
-
-    _current = app_data
-
-    # Load saved IP/Port for the new receiver
-    dpg.set_value(_T["ip"],   _recv_state[_current]["ip"])
-    dpg.set_value(_T["port"], _recv_state[_current]["port"])
-
-    # Show/hide display groups
-    is_col   = (_current == "collision_event_receiver")
-    is_wheel = (_current == "vehicle_info_with_wheel_receiver")
-    dpg.configure_item(_T["vi_group"],    show=not is_col)
-    dpg.configure_item(_T["col_group"],   show=is_col)
-    dpg.configure_item(_T["vi_wheel_grp"], show=is_wheel)
-
-    _refresh_buttons()
+def _on_refresh(sender=None, app_data=None, user_data=None) -> None:
+    tmpls = _get_templates()
+    dpg.configure_item(_T["listbox"], items=tmpls)
 
 
-# ─── Start / Stop ────────────────────────────────────────────────
-def _on_start(*_) -> None:
-    st = _recv_state[_current]
-    if st["running"]:
+# ═══════════════════════════════════════════════════════════════════════
+#  Monitor tab open / close
+# ═══════════════════════════════════════════════════════════════════════
+
+def _open_monitor(filename: str,
+                  ip: str = "127.0.0.1",
+                  port: int = _DEFAULT_PORT) -> None:
+    global _win_counter
+
+    path = os.path.join(_TMPL_DIR, filename)
+    if not os.path.isfile(path):
+        return
+    try:
+        parser = TemplateParser(path)
+    except Exception as e:
+        print(f"[Monitor] template load error: {e}")
         return
 
-    ip   = dpg.get_value(_T["ip"]).strip() or "0.0.0.0"
-    port = dpg.get_value(_T["port"])
-    st["ip"]   = ip
-    st["port"] = port
+    _win_counter += 1
+    tab_tag = f"mon_tab_{_win_counter}"
+
+    ip_tag          = dpg.generate_uuid()
+    port_tag        = dpg.generate_uuid()
+    btn_start_tag   = dpg.generate_uuid()
+    btn_stop_tag    = dpg.generate_uuid()
+    status_tag      = dpg.generate_uuid()
+    dyn_group_tag   = dpg.generate_uuid()
+
+    st: dict = {
+        "filename":        filename,
+        "parser":          parser,
+        "tab_tag":         tab_tag,
+        "ip_tag":          ip_tag,
+        "port_tag":        port_tag,
+        "btn_start_tag":   btn_start_tag,
+        "btn_stop_tag":    btn_stop_tag,
+        "status_tag":      status_tag,
+        "dyn_group_tag":   dyn_group_tag,
+        "field_groups":    [],
+        "repeat_text_tag": 0,
+        "running":         False,
+        "sock":            None,
+        "thread":          None,
+        "last_update_t":   0.0,
+    }
+    _monitors[tab_tag] = st
+
+    # 첫 탭 오픈 시 안내 문구 숨기기
+    if len(_monitors) == 1 and dpg.does_item_exist(_HINT_TAG):
+        dpg.configure_item(_HINT_TAG, show=False)
+
+    # ── 새 탭 ────────────────────────────────────────────────────
+    with dpg.tab(label=_tab_label(filename), tag=tab_tag,
+                 parent=_INNER_TABBAR):
+        with dpg.child_window(width=-1, height=-1, border=False):
+
+            # IP / Port / Start / Stop / Close
+            with dpg.group(horizontal=True):
+                dpg.add_text("IP:", color=(160, 160, 170))
+                dpg.add_input_text(tag=ip_tag,
+                                   default_value=ip, width=110)
+                dpg.add_text("Port:", color=(160, 160, 170))
+                dpg.add_input_int(tag=port_tag,
+                                  default_value=port,
+                                  width=72, step=0,
+                                  min_value=1, max_value=65535)
+                dpg.add_button(tag=btn_start_tag, label="▶ Start", width=62,
+                               callback=_on_start, user_data=tab_tag)
+                dpg.add_button(tag=btn_stop_tag,  label="■ Stop",  width=62,
+                               callback=_on_stop,  user_data=tab_tag)
+                dpg.add_button(label="■ Close", width=64,
+                               callback=_on_close_tab, user_data=tab_tag)
+
+            dpg.add_text("○ Stopped", tag=status_tag,
+                         color=(180, 80, 80, 255))
+            dpg.add_separator()
+
+            dpg.add_group(tag=dyn_group_tag)
+
+    _rebuild_display(tab_tag)
+
+    # 새로 열린 탭으로 포커스
+    dpg.set_value(_INNER_TABBAR, tab_tag)
+
+    # 상태 저장
+    _save_state()
+
+
+def _on_close_tab(sender, app_data, user_data) -> None:
+    tab_tag = user_data
+    st = _monitors.pop(tab_tag, None)
+    if st:
+        _stop_receiver(st)
+    if dpg.does_item_exist(tab_tag):
+        dpg.delete_item(tab_tag)
+    # 탭이 모두 닫히면 안내 문구 다시 표시
+    if not _monitors and dpg.does_item_exist(_HINT_TAG):
+        dpg.configure_item(_HINT_TAG, show=True)
+    # 상태 저장
+    _save_state()
+
+
+# ── Dynamic display builder ──────────────────────────────────────────
+
+def _rebuild_display(tab_tag: str) -> None:
+    st = _monitors.get(tab_tag)
+    if not st:
+        return
+
+    dg = st["dyn_group_tag"]
+    if not dpg.does_item_exist(dg):
+        return
+
+    dpg.delete_item(dg, children_only=True)
+    st["field_groups"]    = []
+    st["repeat_text_tag"] = 0
+
+    parser = st["parser"]
+
+    dpg.add_text(f"[ {parser.template_name} ]",
+                 color=(200, 200, 100, 255), parent=dg)
+    dpg.add_separator(parent=dg)
+
+    # ── FIELDS table ─────────────────────────────────────────────
+    if parser.fields_segment:
+        seg = parser.fields_segment
+        dpg.add_text("Fields", color=(180, 180, 180, 255), parent=dg)
+
+        fd_list = [{"name": f.name, "variable_name": f.variable_name}
+                   for f in seg.fields]
+        groups  = _make_groups(fd_list)
+
+        with dpg.table(parent=dg, header_row=True,
+                       borders_innerV=True, borders_outerV=True,
+                       borders_outerH=True, borders_innerH=True,
+                       resizable=True):
+            dpg.add_table_column(label="Field",
+                                 width_fixed=True, init_width_or_weight=180)
+            dpg.add_table_column(label="Value")
+
+            for g in groups:
+                val_tag = dpg.generate_uuid()
+                g["tag"] = val_tag
+                with dpg.table_row():
+                    dpg.add_text(g["label"], color=(160, 160, 190, 255))
+                    dpg.add_text("-", tag=val_tag)
+                st["field_groups"].append(g)
+
+    # ── REPEAT section ────────────────────────────────────────────
+    if parser.has_repeat:
+        dpg.add_spacer(height=6, parent=dg)
+        rfn = parser.repeat_segment.repeat_field_name
+        dpg.add_text(f"Repeat:  {rfn}", color=(180, 180, 180, 255), parent=dg)
+        rtt = dpg.generate_uuid()
+        st["repeat_text_tag"] = rtt
+        dpg.add_input_text(
+            tag=rtt,
+            multiline=True,
+            readonly=True,
+            width=-1,
+            height=160,
+            default_value="(0 items)",
+            parent=dg,
+        )
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  Start / Stop
+# ═══════════════════════════════════════════════════════════════════════
+
+def _on_start(sender, app_data, user_data) -> None:
+    tab_tag = user_data
+    st = _monitors.get(tab_tag)
+    if not st or st["running"]:
+        return
+
+    ip   = dpg.get_value(st["ip_tag"]).strip() or "0.0.0.0"
+    port = dpg.get_value(st["port_tag"])
 
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.bind((ip, port))
     except Exception as e:
-        dpg.set_value(_T["status"], f"✗ {e}")
-        dpg.configure_item(_T["status"], color=(255, 80, 80, 255))
+        _set_status(st, f"✗ {e}", (255, 80, 80, 255))
         return
 
-    name = _current
-    thread = _UDPThread(
-        sock     = sock,
-        parse_fn = _PARSE[name],
-        on_data  = lambda p, a, n=name: _on_data(n, p, a),
-        on_error = lambda n=name: _on_thread_error(n),
-    )
     st["sock"]    = sock
-    st["thread"]  = thread
     st["running"] = True
-    _yaw_buf.clear()
-    _acc_buf.clear()
-    thread.start()
+    st["thread"]  = _UDPThread(
+        sock     = sock,
+        parse_fn = st["parser"].parse,
+        on_data  = lambda p, tt=tab_tag: _on_data(tt, p),
+        on_error = lambda tt=tab_tag: ui_queue.post(
+                       lambda: _on_thread_error(tt)),
+    )
+    st["thread"].start()
+    _refresh_status(tab_tag)
+    # IP/Port 변경사항 영구 저장
+    _save_state()
 
-    _refresh_buttons()
 
-
-def _on_stop(*_) -> None:
-    st = _recv_state[_current]
-    if not st["running"]:
+def _on_stop(sender, app_data, user_data) -> None:
+    tab_tag = user_data
+    st = _monitors.get(tab_tag)
+    if not st or not st["running"]:
         return
+    _stop_receiver(st)
+    _refresh_status(tab_tag)
 
+
+def _stop_receiver(st: dict) -> None:
     st["running"] = False
-    if st["thread"]:
+    if st.get("thread"):
         st["thread"].stop()
         st["thread"] = None
-    if st["sock"]:
+    if st.get("sock"):
         try:
             st["sock"].close()
         except Exception:
             pass
         st["sock"] = None
 
-    _refresh_buttons()
+
+def _on_thread_error(tab_tag: str) -> None:
+    st = _monitors.get(tab_tag)
+    if st:
+        st["running"] = False
+        st["thread"]  = None
+        st["sock"]    = None
+        _refresh_status(tab_tag)
 
 
-def _on_thread_error(name: str) -> None:
-    """Called on UI thread via ui_queue when a receiver thread dies unexpectedly."""
-    st = _recv_state[name]
-    st["running"] = False
-    st["thread"]  = None
-    st["sock"]    = None
-    if name == _current:
-        _refresh_buttons()
+# ═══════════════════════════════════════════════════════════════════════
+#  Data routing & display update
+# ═══════════════════════════════════════════════════════════════════════
+
+def _on_data(tab_tag: str, parsed: dict) -> None:
+    st = _monitors.get(tab_tag)
+    if not st:
+        return
+    now = time.time()
+    if now - st["last_update_t"] < _UPDATE_INTERVAL:
+        return
+    st["last_update_t"] = now
+    ui_queue.post(lambda tt=tab_tag, p=parsed: _apply_data(tt, p))
 
 
-# ─── Button / status refresh ─────────────────────────────────────
-def _refresh_buttons() -> None:
-    running = _recv_state[_current]["running"]
-    if running:
-        dpg.set_value(_T["status"], "● Running")
-        dpg.configure_item(_T["status"], color=(80, 200, 80, 255))
+def _apply_data(tab_tag: str, parsed: dict) -> None:
+    st = _monitors.get(tab_tag)
+    if not st:
+        return
+
+    fl = parsed.get("field_list", [])
+
+    for g in st["field_groups"]:
+        tag = g["tag"]
+        if not dpg.does_item_exist(tag):
+            continue
+        t, ix = g["type"], g["indices"]
+
+        if t == "xyz" and ix[2] < len(fl):
+            i0, i1, i2 = ix
+            dpg.set_value(tag,
+                f"X={_fmt(fl[i0]['value'], fl[i0]['type'])}  "
+                f"Y={_fmt(fl[i1]['value'], fl[i1]['type'])}  "
+                f"Z={_fmt(fl[i2]['value'], fl[i2]['type'])}")
+
+        elif t == "xyzw" and ix[3] < len(fl):
+            i0, i1, i2, i3 = ix
+            dpg.set_value(tag,
+                f"X={_fmt(fl[i0]['value'], fl[i0]['type'])}  "
+                f"Y={_fmt(fl[i1]['value'], fl[i1]['type'])}  "
+                f"Z={_fmt(fl[i2]['value'], fl[i2]['type'])}  "
+                f"W={_fmt(fl[i3]['value'], fl[i3]['type'])}")
+
+        elif t == "single" and ix[0] < len(fl):
+            i0 = ix[0]
+            dpg.set_value(tag, _fmt(fl[i0]["value"], fl[i0]["type"]))
+
+    rtt = st.get("repeat_text_tag", 0)
+    if rtt and dpg.does_item_exist(rtt):
+        dpg.set_value(rtt, _format_repeat_rows(parsed.get("repeat_rows", [])))
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  Status helpers
+# ═══════════════════════════════════════════════════════════════════════
+
+def _set_status(st: dict, text: str, color: tuple) -> None:
+    tag = st.get("status_tag", 0)
+    if tag and dpg.does_item_exist(tag):
+        dpg.set_value(tag, text)
+        dpg.configure_item(tag, color=color)
+
+
+def _refresh_status(tab_tag: str) -> None:
+    st = _monitors.get(tab_tag)
+    if not st:
+        return
+    if st["running"]:
+        _set_status(st, "● Running", (80, 200, 80, 255))
     else:
-        dpg.set_value(_T["status"], "● Stopped")
-        dpg.configure_item(_T["status"], color=(180, 80, 80, 255))
+        _set_status(st, "○ Stopped", (180, 80, 80, 255))
 
 
-# ─── Data routing ────────────────────────────────────────────────
-def _on_data(name: str, parsed: dict, addr) -> None:
-    if name in ("vehicle_info_receiver", "vehicle_info_with_wheel_receiver"):
-        has_wheel = (name == "vehicle_info_with_wheel_receiver")
-        ui_queue.post(lambda p=parsed, w=has_wheel: _apply_vi(p, w))
-    elif name == "collision_event_receiver":
-        ui_queue.post(lambda p=parsed: _apply_col(p))
+# ═══════════════════════════════════════════════════════════════════════
+#  State persistence  (config/monitor_state.json)
+# ═══════════════════════════════════════════════════════════════════════
+
+def _save_state() -> None:
+    """현재 열린 탭 목록(파일명 + IP + Port)을 JSON 파일에 저장."""
+    entries = []
+    for tab_tag, st in list(_monitors.items()):
+        if not dpg.does_item_exist(tab_tag):
+            continue
+        try:
+            ip   = dpg.get_value(st["ip_tag"])
+            port = int(dpg.get_value(st["port_tag"]))
+        except Exception:
+            ip, port = "127.0.0.1", _DEFAULT_PORT
+        entries.append({
+            "filename": st["filename"],
+            "ip":       ip,
+            "port":     port,
+        })
+    try:
+        os.makedirs(os.path.dirname(_STATE_FILE), exist_ok=True)
+        with open(_STATE_FILE, "w", encoding="utf-8") as f:
+            json.dump(entries, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        print(f"[Monitor] save state error: {e}")
 
 
-# ─── Vehicle Info display update ─────────────────────────────────
-def _apply_vi(p: dict, has_wheel: bool) -> None:
-    if not dpg.does_item_exist(_T["vi_id"]):
+def _load_state() -> None:
+    """저장된 탭 목록을 읽어 탭을 자동으로 복원."""
+    if not os.path.isfile(_STATE_FILE):
+        return
+    try:
+        with open(_STATE_FILE, "r", encoding="utf-8") as f:
+            entries = json.load(f)
+    except Exception as e:
+        print(f"[Monitor] load state error: {e}")
         return
 
-    dpg.set_value(_T["vi_id"],   p["id"])
-    dpg.set_value(_T["vi_time"], f"{p['seconds']}s {p['nanos']}ns")
-
-    for prefix, key in [
-        ("vi_loc", "location"),
-        ("vi_rot", "rotation"),
-        ("vi_vel", "local_velocity"),
-        ("vi_acc", "local_acceleration"),
-        ("vi_ang", "angular_velocity"),
-    ]:
-        for axis in ["x", "y", "z"]:
-            dpg.set_value(_T[f"{prefix}_{axis}"], f"{p[key][axis]:.3f}")
-
-    ctrl = p["control"]
-    dpg.set_value(_T["vi_thr"],   f"{ctrl['throttle']:.3f}")
-    dpg.set_value(_T["vi_brk"],   f"{ctrl['brake']:.3f}")
-    dpg.set_value(_T["vi_steer"], f"{ctrl['steer_angle']:.3f}")
-
-    vel   = p["local_velocity"]
-    speed = math.sqrt(vel["x"]**2 + vel["y"]**2 + vel["z"]**2)
-    dpg.set_value(_T["vi_speed_bar"], min(speed / _MAX_SPEED, 1.0))
-    dpg.configure_item(_T["vi_speed_bar"], overlay=f"{speed:.2f} m/s")
-
-    # ── Yaw Rate 플롯 업데이트 ────────────────────────────────
-    yaw_deg = math.degrees(p["angular_velocity"]["z"])
-    _yaw_buf.append(yaw_deg)
-    if dpg.does_item_exist(_T["yaw_series"]):
-        xs = list(range(len(_yaw_buf)))
-        dpg.set_value(_T["yaw_series"], [xs, list(_yaw_buf)])
-        dpg.fit_axis_data(_T["yaw_x_axis"])
-
-    # ── Acceleration X 플롯 업데이트 (m/s² → g) ──────────────
-    _G = 9.81
-    acc_g = p["local_acceleration"]["x"] / _G
-    _acc_buf.append(acc_g)
-    if dpg.does_item_exist(_T["acc_series"]):
-        xs = list(range(len(_acc_buf)))
-        dpg.set_value(_T["acc_series"], [xs, list(_acc_buf)])
-        dpg.fit_axis_data(_T["acc_x_axis"])
-
-    if has_wheel:
-        _rebuild_wheels(p.get("wheels", []), p.get("wheel_count", 0))
-
-
-def _rebuild_wheels(wheels: list, wheel_count: int) -> None:
-    items_tag = _T["vi_wheel_items"]
-    if not dpg.does_item_exist(items_tag):
-        return
-    dpg.delete_item(items_tag, children_only=True)
-
-    dpg.add_text(f"count={wheel_count}  parsed={len(wheels)}",
-                 parent=items_tag, color=(180, 180, 180, 255))
-    for i, w in enumerate(wheels):
-        dpg.add_text(
-            f"  [{i}]  ({w['x']:.3f},  {w['y']:.3f},  {w['z']:.3f})",
-            parent=items_tag, color=(200, 200, 200, 255),
-        )
-
-
-# ─── Collision display update ─────────────────────────────────────
-def _apply_col(p: dict) -> None:
-    if not dpg.does_item_exist(_T["col_entity"]):
-        return
-
-    dpg.set_value(_T["col_entity"], p["entity_id"])
-    dpg.set_value(_T["col_count"],  str(p["count"]))
-
-    items_tag = _T["col_items"]
-    dpg.delete_item(items_tag, children_only=True)
-
-    for i, it in enumerate(p.get("items", [])):
-        t    = it["collision_time"]
-        loc  = it["transform"]["location"]
-        rot  = it["transform"]["rotation"]
-        dim  = it["dimensions"]
-        vel  = it["vehicle_state"]["velocity"]
-        acc  = it["vehicle_state"]["acceleration"]
-        spec = it["vehicle_spec"]
-
-        dpg.add_separator(parent=items_tag)
-        dpg.add_text(
-            f"[{i}]  {it['collision_object_id']}   type={it['object_type']}   "
-            f"time={t['seconds']}s {t['nanos']}ns",
-            parent=items_tag, color=(200, 200, 100, 255),
-        )
-        with dpg.table(parent=items_tag, header_row=True,
-                       borders_innerV=True, resizable=True):
-            dpg.add_table_column(label="Location")
-            dpg.add_table_column(label="Rotation")
-            with dpg.table_row():
-                dpg.add_text(f"({loc['x']:.2f}, {loc['y']:.2f}, {loc['z']:.2f})")
-                dpg.add_text(f"({rot['x']:.2f}, {rot['y']:.2f}, {rot['z']:.2f})")
-
-        with dpg.table(parent=items_tag, header_row=True,
-                       borders_innerV=True, resizable=True):
-            dpg.add_table_column(label="Velocity")
-            dpg.add_table_column(label="Acceleration")
-            with dpg.table_row():
-                dpg.add_text(f"({vel['x']:.3f}, {vel['y']:.3f}, {vel['z']:.3f})")
-                dpg.add_text(f"({acc['x']:.3f}, {acc['y']:.3f}, {acc['z']:.3f})")
-
-        dpg.add_text(
-            f"  dim=(L={dim['length']:.2f}, W={dim['width']:.2f}, H={dim['height']:.2f})   "
-            f"spec=(front={spec['overhang_front']:.2f}, rear={spec['overhang_rear']:.2f}, "
-            f"wb={spec['wheel_base']:.2f})",
-            parent=items_tag, color=(160, 160, 160, 255),
-        )
+    for entry in entries:
+        filename = entry.get("filename", "")
+        ip       = entry.get("ip", "127.0.0.1")
+        port     = int(entry.get("port", _DEFAULT_PORT))
+        if filename:
+            _open_monitor(filename, ip=ip, port=port)

@@ -1,0 +1,42 @@
+{
+    "common": {
+        "sampling_rate": 30,
+        "vehicle_length": 3.93,
+        "wheelbase": 2.35
+    },
+    "map": {
+        "name": "Sangam_Track",
+        "traffic_light_control": false,
+        "is_closed_path": true,
+        "local_path_size": 50,
+        "use_mgeo_path" : false,
+        "mgeo":{
+            "start_node" : "Node_0005",
+            "end_node" : "Node_0004"
+        }
+    },
+    "planning": {
+        "velocity_profile": {
+            "max_velocity": 45.0,
+            "road_friction": 1.0,
+            "window_size": 25
+        },
+        "adaptive_cruise_control": {
+            "velocity_gain": 1.0,
+            "distance_gain": 1,
+            "time_gap": 0.8
+        }
+    },
+    "control": {
+        "pid": {
+            "p_gain": 0.075,
+            "i_gain": 0.0001,
+            "d_gain": 0.025
+        },
+        "pure_pursuit": {
+            "lfd_gain": 0.65,
+            "min_lfd": 13,
+            "max_lfd": 30
+        }
+    }
+}
