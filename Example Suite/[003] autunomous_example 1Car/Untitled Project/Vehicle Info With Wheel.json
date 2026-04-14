@@ -1,0 +1,45 @@
+{
+	"version": "1.0.0-alpha",
+	"createDate": "2026-04-09 17:13",
+	"interface":
+	{
+		"activate": true,
+		"isExternal": false,
+		"recordEnabled": false,
+		"outputFormat": "CSV",
+		"name": "Vehicle Info With Wheel",
+		"projectName": "MoraiProject_0",
+		"messageTemplateFileName": "Vehicle Info with wheel",
+		"networkType": "UDP",
+		"hertz": 60,
+		"direction": "SEND",
+		"hostAddr":
+		{
+			"ip": "127.0.0.1",
+			"port": 0
+		},
+		"destinationAddr":
+		{
+			"ip": "127.0.0.1",
+			"port": 9091
+		},
+		"entityList": [
+			{
+				"id": "Car_1",
+				"name": "Car_1",
+				"descriptorName": ""
+			}
+		],
+		"recordRelationDataModelList": [],
+		"rosInfo":
+		{
+			"topicName": "",
+			"messageType": ""
+		},
+		"canInfo":
+		{
+			"id": "",
+			"name": ""
+		}
+	}
+}

@@ -1,0 +1,45 @@
+{
+	"version": "1.0.0-alpha",
+	"createDate": "2026-03-31 16:47",
+	"interface":
+	{
+		"activate": true,
+		"isExternal": false,
+		"recordEnabled": false,
+		"outputFormat": "CSV",
+		"name": "Camera Sensor",
+		"projectName": "MoraiProject_0",
+		"messageTemplateFileName": "Camera Template",
+		"networkType": "UDP",
+		"hertz": 60,
+		"direction": "SEND",
+		"hostAddr":
+		{
+			"ip": "127.0.0.1",
+			"port": 0
+		},
+		"destinationAddr":
+		{
+			"ip": "127.0.0.1",
+			"port": 9090
+		},
+		"entityList": [
+			{
+				"id": "Camera_1",
+				"name": "Camera_1",
+				"descriptorName": ""
+			}
+		],
+		"recordRelationDataModelList": [],
+		"rosInfo":
+		{
+			"topicName": "",
+			"messageType": ""
+		},
+		"canInfo":
+		{
+			"id": "",
+			"name": ""
+		}
+	}
+}

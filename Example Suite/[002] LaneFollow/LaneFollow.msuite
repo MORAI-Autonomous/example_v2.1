@@ -1,0 +1,11 @@
+{
+	"name": "[002] LaneFollow",
+	"versionFormat": [ 1, 0 ],
+	"versionSimulator": [],
+	"projectList": [
+		{
+			"name": "LaneFollow Project",
+			"filepath": "LaneFollow Project/LaneFollow Project.mproj"
+		}
+	]
+}

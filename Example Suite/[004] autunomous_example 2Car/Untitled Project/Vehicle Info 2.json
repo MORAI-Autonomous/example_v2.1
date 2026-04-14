@@ -1,0 +1,45 @@
+{
+	"version": "1.0.0-alpha",
+	"createDate": "2026-04-02 19:47",
+	"interface":
+	{
+		"activate": true,
+		"isExternal": false,
+		"recordEnabled": false,
+		"outputFormat": "CSV",
+		"name": "Vehicle Info 2",
+		"projectName": "MoraiProject_0",
+		"messageTemplateFileName": "Vehicle Info",
+		"networkType": "UDP",
+		"hertz": 60,
+		"direction": "SEND",
+		"hostAddr":
+		{
+			"ip": "127.0.0.1",
+			"port": 0
+		},
+		"destinationAddr":
+		{
+			"ip": "127.0.0.1",
+			"port": 9098
+		},
+		"entityList": [
+			{
+				"id": "Car_2",
+				"name": "Car_2",
+				"descriptorName": ""
+			}
+		],
+		"recordRelationDataModelList": [],
+		"rosInfo":
+		{
+			"topicName": "",
+			"messageType": ""
+		},
+		"canInfo":
+		{
+			"id": "",
+			"name": ""
+		}
+	}
+}

@@ -1,0 +1,11 @@
+{
+	"name": "autunomous_example",
+	"versionFormat": [ 1, 0 ],
+	"versionSimulator": [],
+	"projectList": [
+		{
+			"name": "Untitled Project",
+			"filepath": "Untitled Project/Untitled Project.mproj"
+		}
+	]
+}

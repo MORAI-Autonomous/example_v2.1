@@ -1,0 +1,224 @@
+{
+	"map":
+	{
+		"type": "Standard",
+		"name": "Sangam Track",
+		"id": 100007,
+		"originFrame":
+		{
+			"position":
+			{
+				"x": 0,
+				"y": 0,
+				"z": 0
+			}
+		}
+	},
+	"sensorList": [],
+	"kineticsModelList": [
+		{
+			"modelName": "None",
+			"type": "Standard",
+			"optionId": 0,
+			"parentName": "Car_1",
+			"dynamicType": "Dynamics",
+			"body":
+			{
+				"mass": 0,
+				"id": 0,
+				"dragCoeff": 0,
+				"ineritaTensorScale": 0,
+				"centerOfMass":
+				{
+					"bEnable": false,
+					"position":
+					{
+						"x": 0,
+						"y": 0,
+						"z": 0
+					}
+				}
+			},
+			"steer":
+			{
+				"maxAngle": 0
+			},
+			"brake":
+			{
+				"maxTorque": 0
+			}
+		},
+		{
+			"modelName": "None",
+			"type": "Standard",
+			"optionId": 0,
+			"parentName": "Car_2",
+			"dynamicType": "Dynamics",
+			"body":
+			{
+				"mass": 0,
+				"id": 0,
+				"dragCoeff": 0,
+				"ineritaTensorScale": 0,
+				"centerOfMass":
+				{
+					"bEnable": false,
+					"position":
+					{
+						"x": 0,
+						"y": 0,
+						"z": 0
+					}
+				}
+			},
+			"steer":
+			{
+				"maxAngle": 0
+			},
+			"brake":
+			{
+				"maxTorque": 0
+			}
+		}
+	],
+	"DynamicsCustomData": [
+		{
+			"ObjectName": "Car_1",
+			"vehicleSetup":
+			{
+				"mass": 550,
+				"centerOfMassOverride":
+				{
+					"x": 90.209999999999994,
+					"y": 0,
+					"z": 15
+				},
+				"dragCoefficient": 0.69999998807907104,
+				"inertiaTensorScale":
+				{
+					"x": 1.47,
+					"y": 2.5699999999999998,
+					"z": 2.2999999999999998
+				},
+				"maxBrakeTorque": 500
+			},
+			"axle1":
+			{
+				"maxSteerAngle": 25,
+				"wheelPosition": 235.00001525878906,
+				"trackWidth": 147.39998626708984,
+				"wheelDiameter": 55,
+				"wheelMass": 20
+			},
+			"axle2":
+			{
+				"maxSteerAngle": 0,
+				"wheelPosition": 0,
+				"trackWidth": 146.30000305175781,
+				"wheelDiameter": 57,
+				"wheelMass": 20
+			}
+		},
+		{
+			"ObjectName": "Car_2",
+			"vehicleSetup":
+			{
+				"mass": 550,
+				"centerOfMassOverride":
+				{
+					"x": 90.209999999999994,
+					"y": 0,
+					"z": 15
+				},
+				"dragCoefficient": 0.69999998807907104,
+				"inertiaTensorScale":
+				{
+					"x": 1.47,
+					"y": 2.5699999999999998,
+					"z": 2.2999999999999998
+				},
+				"maxBrakeTorque": 500
+			},
+			"axle1":
+			{
+				"maxSteerAngle": 25,
+				"wheelPosition": 235.00001525878906,
+				"trackWidth": 147.39998626708984,
+				"wheelDiameter": 55,
+				"wheelMass": 20
+			},
+			"axle2":
+			{
+				"maxSteerAngle": 0,
+				"wheelPosition": 0,
+				"trackWidth": 146.30000305175781,
+				"wheelDiameter": 57,
+				"wheelMass": 20
+			}
+		}
+	],
+	"AgentModels": [
+		{
+			"maxAcceleration": 2,
+			"comfortDeceleration": 1.5,
+			"minDistance": 1,
+			"timeGap": 1.2000000476837158,
+			"desiredSpeed": 33.299999237060547,
+			"accelerationExponent": 4,
+			"carFollowingModel": "Idm",
+			"agentName": "Car_1",
+			"group": "LongitudinalCarFollowing"
+		},
+		{
+			"maxAcceleration": 2,
+			"comfortDeceleration": 1.5,
+			"minDistance": 1,
+			"timeGap": 1.2000000476837158,
+			"desiredSpeed": 33.299999237060547,
+			"accelerationExponent": 4,
+			"carFollowingModel": "Idm",
+			"agentName": "Car_2",
+			"group": "LongitudinalCarFollowing"
+		}
+	],
+	"scenarioList": [
+		{
+			"name": "Untitled Scenario",
+			"path": "Untitled Scenario.xosc"
+		}
+	],
+	"interfaceList": [
+		{
+			"name": "Vehicle Info 7",
+			"path": "Vehicle Info 7.json"
+		},
+		{
+			"name": "Vehicle Info 8",
+			"path": "Vehicle Info 8.json"
+		},
+		{
+			"name": "Cmd Control 7",
+			"path": "Cmd Control 7.json"
+		},
+		{
+			"name": "Cmd Control 8",
+			"path": "Cmd Control 8.json"
+		},
+		{
+			"name": "Transform 7",
+			"path": "Transform 7.json"
+		},
+		{
+			"name": "Transform 8",
+			"path": "Transform 8.json"
+		},
+		{
+			"name": "Vehicle Info 1",
+			"path": "Vehicle Info 1.json"
+		},
+		{
+			"name": "Vehicle Info 2",
+			"path": "Vehicle Info 2.json"
+		}
+	]
+}
