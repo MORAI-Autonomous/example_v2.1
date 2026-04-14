@@ -63,6 +63,15 @@ class BEVParams:
     # ↑ 주황 배리어(H≈15, S≈150)가 노란 범위(H:15-35)와 겹쳐 오검출됨
     #   터널 노란 중앙선 구간 필요 시 True 로 변경
 
+    # ── 후처리 노이즈 제거 ────────────────────────────────────────
+    # BEV 상단(원경) 행 마스킹: 멀리 있는 표지판/화살표/그늘 오검출 차단
+    bev_top_crop: int = 80   # binary 상단 N행을 0 으로 마스킹 (0 = 비활성)
+
+    # Connected-component 면적 필터: N픽셀 미만 blob 제거
+    # 그늘·나뭇잎 반사 등 산점 노이즈를 효과적으로 제거
+    # 차선 픽셀 클러스터는 보통 50px 이상 → 기본값 50
+    min_blob_area: int = 50  # 0 = 비활성
+
     def src_pts(self) -> np.ndarray:
         return np.float32([
             [self.src_bot_left_x,  self.src_bot_y],
@@ -121,6 +130,14 @@ class LanePreprocessor:
 
         # 3. 흰색 차선 이진화
         binary = self._white_threshold(bev, p)
+
+        # 3-a. BEV 상단(원경) 마스킹 — 터널 천장·표지판·화살표 오검출 차단
+        if p.bev_top_crop > 0:
+            binary[:p.bev_top_crop, :] = 0
+
+        # 3-b. 소면적 blob 제거 — 그늘·나뭇잎 반사 등 산점 노이즈 제거
+        if p.min_blob_area > 0:
+            binary = self._remove_small_blobs(binary, p.min_blob_area)
 
         # 4. 디버그 시각화
         debug = self._make_debug(frame, bev, binary, p)
@@ -241,6 +258,17 @@ class LanePreprocessor:
         mask    = cv2.morphologyEx(mask, cv2.MORPH_OPEN,  k_open)
         mask    = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, k_close)
         return mask
+
+    @staticmethod
+    def _remove_small_blobs(mask: np.ndarray, min_area: int) -> np.ndarray:
+        """Connected-component 면적 필터 — min_area 픽셀 미만 blob 제거."""
+        n_labels, labels, stats, _ = cv2.connectedComponentsWithStats(
+            mask, connectivity=8)
+        cleaned = np.zeros_like(mask)
+        for i in range(1, n_labels):          # 0 = 배경 스킵
+            if stats[i, cv2.CC_STAT_AREA] >= min_area:
+                cleaned[labels == i] = 255
+        return cleaned
 
     @staticmethod
     def _make_debug(original: np.ndarray, bev: np.ndarray,

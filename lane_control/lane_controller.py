@@ -1,6 +1,7 @@
 # lane_controller.py
 #
 # Step 4+5: 차선 추종 자율 주행 컨트롤러
+from __future__ import annotations
 #   Camera UDP → LanePreprocessor → LaneDetector → EMA → PD Controller → ManualControlById (TCP)
 #   Vehicle Info UDP (9091) → 속도 피드백 → Speed PI → 스로틀 자동 제어
 #
@@ -213,7 +214,8 @@ class _VehicleInfoThread(threading.Thread):
     포트: 9091 (vehicle_info_with_wheel_receiver)
     """
 
-    def __init__(self, ip: str = "127.0.0.1", port: int = 9091):
+    def __init__(self, ip: str = "127.0.0.1", port: int = 9091,
+                 log_fn=None, data_cb=None):
         super().__init__(daemon=True, name="vi-recv")
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -223,6 +225,8 @@ class _VehicleInfoThread(threading.Thread):
         self._lock        = threading.Lock()
         self._speed_mps:  float = 0.0
         self._speed_valid: bool = False   # 한 번이라도 수신됐는지
+        self._log      = log_fn  or (lambda msg, level="INFO": print(f"[VI] {msg}"))
+        self._data_cb  = data_cb  # fn(parsed: dict) — 파싱 결과 콜백
 
     def get_speed_mps(self) -> float:
         with self._lock:
@@ -241,7 +245,7 @@ class _VehicleInfoThread(threading.Thread):
 
     def run(self):
         self._running = True
-        print(f"[VehicleInfo] 수신 시작 {self._sock.getsockname()}")
+        self._log(f"Vehicle Info 수신 시작 {self._sock.getsockname()}")
         while self._running:
             try:
                 data, _ = self._sock.recvfrom(4096)
@@ -252,11 +256,16 @@ class _VehicleInfoThread(threading.Thread):
                     with self._lock:
                         self._speed_mps   = spd
                         self._speed_valid = True
+                    if self._data_cb:
+                        try:
+                            self._data_cb(parsed)
+                        except Exception:
+                            pass
             except socket.timeout:
                 continue
             except OSError:
                 break
-        print("[VehicleInfo] 수신 종료")
+        self._log("Vehicle Info 수신 종료")
 
 
 # ─── 속도 PI 컨트롤러 ────────────────────────────────────────────
@@ -355,8 +364,15 @@ class LaneController:
         tuning:        bool  = False,
         # 녹화
         record_path:   str | None = None,
+        # 로그 콜백
+        log_fn = None,
+        # Vehicle Info 파싱 콜백 fn(parsed: dict)
+        vi_data_cb = None,
+        # 디버그 합성 이미지 콜백 fn(frame: np.ndarray BGR 1280×480)
+        debug_cb = None,
     ):
         self._sock         = tcp_sock
+        self._log          = log_fn or (lambda msg, level="INFO": print(f"[LC] {msg}"))
         self._entity_id    = entity_id
         self._throttle     = throttle
         self._show         = show
@@ -374,7 +390,10 @@ class LaneController:
         self._vi_thread: _VehicleInfoThread | None = None
         self._speed_pi:  SpeedPIController  | None = None
         if speed_ctrl:
-            self._vi_thread = _VehicleInfoThread(ip=vi_ip, port=vi_port)
+            self._vi_thread = _VehicleInfoThread(
+                ip=vi_ip, port=vi_port,
+                log_fn=self._log, data_cb=vi_data_cb,
+            )
             self._speed_pi  = SpeedPIController(
                 target_kmh   = target_kmh,
                 kp           = kp_spd,
@@ -403,11 +422,36 @@ class LaneController:
         self._record_path = record_path
         self._writer: cv2.VideoWriter | None = None
 
+        # 디버그 합성 이미지 콜백 (GUI 패널용)
+        self._debug_cb = debug_cb
+
     # ── 카메라 콜백 ──────────────────────────────────────────────
     def on_frame(self, frame: np.ndarray):
         """CameraReceiver.on_frame 콜백 — 최신 프레임 저장"""
         with self._lock:
             self._latest_frame = frame
+
+    # ── 실시간 파라미터 업데이트 ────────────────────────────────
+    def update_params(self, **kwargs) -> None:
+        """GUI 슬라이더 콜백에서 실시간으로 파라미터를 변경한다."""
+        if 'kp'           in kwargs: self._pd.kp          = float(kwargs['kp'])
+        if 'kd'           in kwargs: self._pd.kd          = float(kwargs['kd'])
+        if 'ema_alpha'    in kwargs: self._ema.alpha       = float(kwargs['ema_alpha'])
+        if 'steer_rate'   in kwargs: self._STEER_RATE      = float(kwargs['steer_rate'])
+        if 'offset_clip'  in kwargs: self._OFFSET_CLIP     = float(kwargs['offset_clip'])
+        if 'invert_steer' in kwargs: self._invert_steer    = bool(kwargs['invert_steer'])
+        if 'target_kmh'   in kwargs and self._speed_pi:
+            self._speed_pi.set_target(float(kwargs['target_kmh']))
+        # ── 전처리기 (BEVParams) ────────────────────────────────
+        if 'bev_top_crop'  in kwargs:
+            self._preprocessor.params.bev_top_crop  = int(kwargs['bev_top_crop'])
+        if 'min_blob_area' in kwargs:
+            self._preprocessor.params.min_blob_area = int(kwargs['min_blob_area'])
+        # ── 검출기 (LaneDetector) ───────────────────────────────
+        if 'search_ratio' in kwargs:
+            self._detector.search_ratio = float(kwargs['search_ratio'])
+        if 'min_pixels'   in kwargs:
+            self._detector.min_pixels   = int(kwargs['min_pixels'])
 
     # ── 시작 / 종료 ──────────────────────────────────────────────
     def start(self) -> threading.Thread:
@@ -415,7 +459,7 @@ class LaneController:
             self._vi_thread.start()
         if self._tuning:
             self._tune_panel = TunePanel(self)
-            print(f"[Tuner] 실시간 튜닝 창 활성화 — S: 값 출력  R: 초기화")
+            self._log("[Tuner] 실시간 튜닝 창 활성화 — S: 값 출력  R: 초기화")
         self._running = True
         t = threading.Thread(target=self._loop, daemon=True, name="ctrl-loop")
         t.start()
@@ -428,12 +472,12 @@ class LaneController:
         if self._writer is not None:
             self._writer.release()
             self._writer = None
-            print(f"[Record] 저장 완료: {self._record_path}")
+            self._log(f"[Record] 저장 완료: {self._record_path}")
 
     # ── 제어 루프 ────────────────────────────────────────────────
     def _loop(self):
-        print(f"[Controller] 제어 루프 시작 ({1/self._period:.0f} Hz) "
-              f"entity={self._entity_id} throttle={self._throttle}")
+        self._log(f"제어 루프 시작 ({1/self._period:.0f} Hz) "
+                  f"entity={self._entity_id} throttle={self._throttle}")
         while self._running:
             t0 = time.time()
 
@@ -448,7 +492,7 @@ class LaneController:
             if sleep_t > 0:
                 time.sleep(sleep_t)
 
-        print("[Controller] 루프 종료")
+        self._log("제어 루프 종료")
 
     def _step(self, frame: np.ndarray):
         # 1. BEV 전처리
@@ -472,9 +516,9 @@ class LaneController:
             if not self._ready:
                 if self._det_streak >= self._min_det_go:
                     self._ready = True
-                    print(f"[Controller] 차선 확보 완료 ({self._det_streak}회 연속) → 주행 시작")
+                    self._log(f"차선 확보 완료 ({self._det_streak}회 연속) → 주행 시작")
                 else:
-                    print(f"[Controller] 차선 대기 중... ({self._det_streak}/{self._min_det_go})")
+                    self._log(f"차선 대기 중... ({self._det_streak}/{self._min_det_go})")
 
             if detected:
                 # 정상 검출: 오프셋 EMA + PD 업데이트
@@ -553,11 +597,11 @@ class LaneController:
                 steer_angle = steer_out,
             )
         except OSError as e:
-            print(f"[Controller] TCP 오류: {e}")
+            self._log(f"TCP 오류: {e}", "ERROR")
             self._running = False
             return
 
-        # 7. 터미널 출력
+        # 7. 터미널 출력 (per-frame — GUI 로그 패널에는 보내지 않음)
         side    = "L" if smooth_off > 0 else "R"
         r_str   = f"{result.curve_radius_m:.0f}m" if result.curve_radius_m < 5000 else "STRAIGHT"
         spd_str = f"{current_mps*3.6:.1f}km/h" if self._speed_ctrl else f"thr={throttle_cmd:.2f}"
@@ -572,15 +616,80 @@ class LaneController:
                  f"{'R' if result.right_detected else '-'}"
         )
 
-        # 8. OpenCV 시각화
-        if self._show and result.viz is not None:
-            self._show_debug(pre, result.viz, steer_out, smooth_off, status,
-                             current_mps,
-                             self._speed_pi.target_mps if self._speed_pi else None)
+        # 8. OpenCV 시각화 / 디버그 콜백
+        _need_composite = self._show or self._debug_cb or self._record_path
+        if _need_composite and result.viz is not None:
+            _tgt_mps = self._speed_pi.target_mps if self._speed_pi else None
+            composite = self._build_debug_frame(
+                pre, result.viz, steer_out, smooth_off, status, current_mps, _tgt_mps)
+            if self._show:
+                cv2.imshow("Lane Controller", composite)
+                cv2.waitKey(1)
+            if self._debug_cb:
+                try:
+                    self._debug_cb(composite)
+                except Exception:
+                    pass
+            if self._record_path is not None:
+                if self._writer is None:
+                    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+                    self._writer = cv2.VideoWriter(
+                        self._record_path, fourcc, 20.0, (1280, 480))
+                    self._log(f"[Record] 녹화 시작: {self._record_path}  (1280×480 @20fps)")
+                self._writer.write(composite)
 
         # 9. 튜너 파라미터 읽기 (GUI 없음 — 메인 스레드와 분리)
         if self._tune_panel is not None:
             self._tune_panel.read_params()
+
+    def _build_debug_frame(
+        self,
+        pre:        dict,
+        viz:        np.ndarray,
+        steer:      float,
+        offset:     float,
+        status:     str,
+        speed_mps:  float = 0.0,
+        target_mps: float | None = None,
+    ) -> np.ndarray:
+        """
+        디버그 합성 이미지 빌드 (1280 × 480).
+        show / debug_cb / recording 에서 공용으로 사용.
+
+        레이아웃:
+        ┌─────────────────────┬──────────────┬──────────────┐
+        │  원본 + ROI 사다리꼴│  BEV 검출    │  이진화      │
+        │     640 × 480       │  320 × 240   │  320 × 240   │
+        │                     ├──────────────┴──────────────┤
+        │                     │  상태 / 조향 게이지          │
+        │                     │        640 × 240            │
+        └─────────────────────┴─────────────────────────────┘
+        """
+        W, H = 1280, 480
+        PW   = W // 2
+        RW   = W - PW
+        CW   = RW // 2
+        TH   = H // 2
+        BH   = H - TH
+
+        orig = pre["original"].copy()
+        pts  = self._preprocessor.params.src_pts().astype(np.int32)
+        cv2.polylines(orig, [pts], True, (0, 255, 0), 2)
+        left_panel = cv2.resize(orig, (PW, H))
+
+        top_left = cv2.resize(viz, (CW, TH))
+
+        binary_color = cv2.cvtColor(pre["binary"], cv2.COLOR_GRAY2BGR)
+        top_right = cv2.resize(binary_color, (CW, TH))
+        cv2.putText(top_right, "Binary", (5, 18),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (100, 255, 100), 1)
+
+        bot_panel = np.zeros((BH, RW, 3), dtype=np.uint8)
+        _draw_steer_bar_panel(bot_panel, steer, offset, status, speed_mps, target_mps)
+
+        top_row   = np.hstack([top_left, top_right])
+        right_col = np.vstack([top_row, bot_panel])
+        return np.hstack([left_panel, right_col])
 
     def _show_debug(
         self,
@@ -592,59 +701,11 @@ class LaneController:
         speed_mps:  float = 0.0,
         target_mps: float | None = None,
     ):
-        """
-        레이아웃 (1280 × 480):
-        ┌─────────────────────┬──────────────┬──────────────┐
-        │  원본 + ROI (좌)    │  BEV 검출    │  이진화      │
-        │     640 × 480       │  320 × 240   │  320 × 240   │
-        │                     ├──────────────┴──────────────┤
-        │                     │  스테이터스 / 조향 게이지   │
-        │                     │        640 × 240            │
-        └─────────────────────┴─────────────────────────────┘
-        """
-        W, H = 1280, 480
-        PW   = W // 2   # 패널 너비 640
-        RW   = W - PW   # 우측 영역 640 (2열)
-        CW   = RW // 2  # 우측 각 열 320
-        TH   = H // 2   # 상단 높이 240
-        BH   = H - TH   # 하단 높이 240
-
-        # ── 좌 패널: 원본 + ROI 사다리꼴 ─────────────────────────
-        orig = pre["original"].copy()
-        pts  = self._preprocessor.params.src_pts().astype(np.int32)
-        cv2.polylines(orig, [pts], True, (0, 255, 0), 2)
-        left_panel = cv2.resize(orig, (PW, H))
-
-        # ── 우측 상단 좌: BEV 검출 viz ────────────────────────────
-        top_left = cv2.resize(viz, (CW, TH))
-
-        # ── 우측 상단 우: 이진화 ──────────────────────────────────
-        binary_color = cv2.cvtColor(pre["binary"], cv2.COLOR_GRAY2BGR)
-        top_right = cv2.resize(binary_color, (CW, TH))
-        cv2.putText(top_right, "Binary", (5, 18),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (100, 255, 100), 1)
-
-        # ── 우측 하단: 상태 + 조향 게이지 ────────────────────────
-        bot_panel = np.zeros((BH, RW, 3), dtype=np.uint8)
-        _draw_steer_bar_panel(bot_panel, steer, offset, status, speed_mps, target_mps)
-
-        # 조립
-        top_row    = np.hstack([top_left, top_right])   # 640 × 240
-        right_col  = np.vstack([top_row, bot_panel])    # 640 × 480
-        combined   = np.hstack([left_panel, right_col]) # 1280 × 480
-
+        """CLI --show 모드 전용 래퍼. GUI 모드에서는 debug_cb 를 사용한다."""
+        combined = self._build_debug_frame(
+            pre, viz, steer, offset, status, speed_mps, target_mps)
         cv2.imshow("Lane Controller", combined)
         cv2.waitKey(1)
-
-        # ── 녹화 ─────────────────────────────────────────────────────
-        if self._record_path is not None:
-            if self._writer is None:
-                fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-                self._writer = cv2.VideoWriter(
-                    self._record_path, fourcc, 20.0, (W, H)
-                )
-                print(f"[Record] 녹화 시작: {self._record_path}  ({W}×{H} @20fps)")
-            self._writer.write(combined)
 
 
 # ─── 조향각 게이지 패널 ─────────────────────────────────────────

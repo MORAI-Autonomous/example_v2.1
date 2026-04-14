@@ -10,10 +10,13 @@ from transport.protocol_defs import *
 import transport.tcp_transport as tcp
 import transport.tcp_thread as tcp_thread_mod
 import automation.automation as ac
+from ad_runner import AdRunner
+from lane_runner import LaneRunner
 import utils.ui_queue as ui_queue
-import panels.log      as log_panel
-import panels.monitor  as monitor_panel
-import panels.commands as cmd_panel
+import panels.log               as log_panel
+import panels.monitor            as monitor_panel
+import panels.commands           as cmd_panel
+import panels.lane_control_panel as lc_panel
 
 _logo_tag = None   # 로고 텍스처 태그 (main()에서 로드 후 설정)
 
@@ -95,6 +98,8 @@ class AppState:
         self.receiver    = None
         self.auto_caller = None
         self.fp_caller   = None
+        self.ad_runner   = None
+        self.lc_runner   = None
         self._connecting = False
         self._conn_lock  = threading.Lock()
 
@@ -156,6 +161,75 @@ class AppState:
             self.fp_caller.stop()
             self.fp_caller = None
 
+    def start_ad(self, path_file: str, entity_id: str, vi_port: int) -> None:
+        if self.ad_runner is not None:
+            log_panel.append("[AD] 이미 실행 중입니다.", "WARN")
+            return
+        try:
+            self.ad_runner = AdRunner(
+                tcp_sock  = self.tcp_sock,
+                entity_id = entity_id,
+                vi_ip     = "0.0.0.0",
+                vi_port   = vi_port,
+                path_file = path_file,
+                log_fn    = lambda msg, level="INFO": log_panel.append(f"[AD] {msg}", level),
+            )
+            self.ad_runner.start()
+        except Exception as e:
+            log_panel.append(f"[AD] 시작 실패: {e}", "ERROR")
+            self.ad_runner = None
+            cmd_panel.reset_ad_ui()
+
+    def stop_ad(self) -> None:
+        if self.ad_runner:
+            self.ad_runner.stop()
+            self.ad_runner = None
+        cmd_panel.reset_ad_ui()
+
+    def start_lc(
+        self,
+        cam_port:    int,
+        vi_port:     int,
+        entity_id:   str,
+        speed_ctrl:  bool,
+        target_kmh:  float,
+        throttle:    float,
+        invert_steer: bool = True,
+    ) -> None:
+        if self.lc_runner is not None:
+            log_panel.append("[LC] 이미 실행 중입니다.", "WARN")
+            return
+        try:
+            self.lc_runner = LaneRunner(
+                tcp_sock     = self.tcp_sock,
+                entity_id    = entity_id,
+                cam_ip       = "0.0.0.0",
+                cam_port     = cam_port,
+                vi_ip        = "0.0.0.0",
+                vi_port      = vi_port,
+                speed_ctrl   = speed_ctrl,
+                target_kmh   = target_kmh,
+                throttle     = throttle,
+                invert_steer = invert_steer,
+                log_fn       = lambda msg, level="INFO": log_panel.append(f"[LC] {msg}", level),
+                frame_cb     = lc_panel.update_frame,
+                vi_cb        = lc_panel.update_vehicle_info,
+                debug_cb     = lc_panel.update_debug_frame,
+            )
+            self.lc_runner.start()
+            lc_panel.set_runner(self.lc_runner)
+        except Exception as e:
+            log_panel.append(f"[LC] 시작 실패: {e}", "ERROR")
+            self.lc_runner = None
+            lc_panel.reset_ui()
+
+    def stop_lc(self) -> None:
+        lc_panel.set_runner(None)
+        if self.lc_runner:
+            self.lc_runner.stop()
+            self.lc_runner = None
+        lc_panel.reset_ui()
+
     def connect(self):
         with self._conn_lock:
             if self._connecting:
@@ -189,6 +263,12 @@ class AppState:
                         toggle_auto_fn=self.toggle_auto,
                         start_fp_fn=self.start_fp,
                         stop_fp_fn=self.stop_fp,
+                        start_ad_fn=self.start_ad,
+                        stop_ad_fn=self.stop_ad,
+                    )
+                    lc_panel.init(
+                        start_lc_fn=self.start_lc,
+                        stop_lc_fn=self.stop_lc,
                     )
                     break
                 except Exception as e:
@@ -403,11 +483,17 @@ def build_ui(state: AppState):
                                   border=True,
                                   no_scrollbar=True, no_scroll_with_mouse=True):
                 with dpg.tab_bar(tag="mon_tabbar"):
-                    with dpg.tab(label="UDP Monitor", tag="tab_vehicle"):
+                    with dpg.tab(label="UDP Monitor", tag="tab_udp"):
                         with dpg.child_window(tag="mon_scroll",
                                               width=-1, height=-1,
                                               border=False):
                             monitor_panel.build(parent="mon_scroll")
+
+                    with dpg.tab(label="Lane Control", tag="tab_lc"):
+                        with dpg.child_window(tag="lc_scroll",
+                                              width=-1, height=-1,
+                                              border=False):
+                            lc_panel.build(parent="lc_scroll")
 
         # ── 하단: 로그 ────────────────────────────────────
         # no_scrollbar=True: log_child 가 자체 스크롤 담당
@@ -505,6 +591,10 @@ def main():
         state.auto_caller.stop()
     if state.fp_caller and state.fp_caller.is_alive():
         state.fp_caller.stop()
+    if state.ad_runner:
+        state.ad_runner.stop()
+    if state.lc_runner:
+        state.lc_runner.stop()
     if state.receiver:
         state.receiver.stop()
     if state.tcp_sock:

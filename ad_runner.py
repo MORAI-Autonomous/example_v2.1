@@ -39,33 +39,37 @@ class AdRunner:
         self,
         tcp_sock:  socket.socket,
         entity_id: str,
-        ego_ip:    str,
-        ego_port:  int,
+        vi_ip:     str,
+        vi_port:   int,
+        path_file: str = 'path_link.csv',
+        log_fn=None,
     ):
-        # UDP 수신 소켓 (EgoInfo)
+        # UDP 수신 소켓 (Vehicle Info)
         self._recv_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self._recv_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self._recv_sock.settimeout(2.0)
-        self._recv_sock.bind((ego_ip, ego_port))
+        self._recv_sock.bind((vi_ip, vi_port))
 
         # TCP 소켓 (제어 명령 송신)
         self._tcp_sock  = tcp_sock
         self._entity_id = entity_id
 
         # 자율주행 모듈
-        self._ad = AutonomousDriving('path_link.csv')
+        self._ad = AutonomousDriving(path_file)
 
         self._running = False
         self._lock    = threading.Lock()
         self._latest  = None
+        self._log     = log_fn or (lambda msg, level="INFO": print(f"[AD] {msg}"))
 
-        print(f"[AD] EgoInfo 수신 : {ego_ip}:{ego_port}")
-        print(f"[AD] TCP 제어     : entity_id={entity_id}")
+        self._log(f"Vehicle Info 수신 : {vi_ip}:{vi_port}")
+        self._log(f"TCP 제어          : entity_id={entity_id}")
 
     def start(self):
+        """논블로킹 시작 — 수신/제어 루프를 각각 데몬 스레드로 실행."""
         self._running = True
-        threading.Thread(target=self._recv_loop, daemon=True).start()
-        self._control_loop()
+        threading.Thread(target=self._recv_loop,    daemon=True).start()
+        threading.Thread(target=self._control_loop, daemon=True).start()
 
     def stop(self):
         self._running = False
@@ -91,7 +95,7 @@ class AdRunner:
     # ── 제어 루프 (30Hz) ─────────────────────────────────────────
     def _control_loop(self):
         sampling_time = 1.0 / 30.0
-        print("[AD] 주행 시작 (Ctrl+C 로 종료)")
+        self._log("주행 시작")
 
         while self._running:
             t_start = time.perf_counter()
@@ -100,9 +104,6 @@ class AdRunner:
                 parsed = self._latest
 
             if parsed:
-                # VehicleState 변환
-                #   rotation.z (deg) → yaw (rad)
-                #   local_velocity.x (km/h) → velocity (m/s)
                 vehicle_state = VehicleState(
                     x        = parsed["location"]["x"],
                     y        = parsed["location"]["y"],
@@ -125,21 +126,23 @@ class AdRunner:
                         steer_angle = steer_norm,
                     )
 
-                    print(
-                        f"[AD] pos=({vehicle_state.position.x:.1f}, {vehicle_state.position.y:.1f})  "
+                    self._log(
+                        f"pos=({vehicle_state.position.x:.1f}, {vehicle_state.position.y:.1f})  "
                         f"vel={vehicle_state.velocity*3.6:.1f}km/h  "
                         f"accel={control_input.accel:.3f}  brake={control_input.brake:.3f}  "
-                        f"steer={steer_norm:.3f} (raw={np.rad2deg(control_input.steering):.1f}deg)"
+                        f"steer={steer_norm:.3f}"
                     )
                 except Exception as e:
-                    print(f"[AD][ERROR] {e}")
+                    self._log(f"ERROR: {e}", "ERROR")
             else:
-                print("[AD] 차량 상태 대기 중...")
+                self._log("차량 상태 대기 중...", "INFO")
 
             elapsed = time.perf_counter() - t_start
             sleep_t = sampling_time - elapsed
             if sleep_t > 0:
                 time.sleep(sleep_t)
+
+        self._log("주행 종료")
 
 
 # ─── 진입점 ──────────────────────────────────────────────────────

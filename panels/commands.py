@@ -22,16 +22,22 @@ _dispatch:    Optional[Callable] = None
 _toggle_auto: Optional[Callable] = None
 _start_fp_fn: Optional[Callable] = None
 _stop_fp_fn:  Optional[Callable] = None
+_start_ad_fn: Optional[Callable] = None
+_stop_ad_fn:  Optional[Callable] = None
 
 
 def init(tcp_sock, dispatch_fn: Callable, toggle_auto_fn: Callable,
-         start_fp_fn: Callable = None, stop_fp_fn: Callable = None) -> None:
+         start_fp_fn: Callable = None, stop_fp_fn: Callable = None,
+         start_ad_fn: Callable = None, stop_ad_fn: Callable = None) -> None:
     global _tcp_sock, _dispatch, _toggle_auto, _start_fp_fn, _stop_fp_fn
+    global _start_ad_fn, _stop_ad_fn
     _tcp_sock    = tcp_sock
     _dispatch    = dispatch_fn
     _toggle_auto = toggle_auto_fn
     _start_fp_fn = start_fp_fn
     _stop_fp_fn  = stop_fp_fn
+    _start_ad_fn = start_ad_fn
+    _stop_ad_fn  = stop_ad_fn
 
 
 def build(parent: int | str) -> None:
@@ -259,6 +265,37 @@ def build(parent: int | str) -> None:
         # 마지막 사용 경로 복원
         _load_fp_state()
 
+        # ── Autonomous Driving ─────────────────────────────
+        _section("AUTONOMOUS DRIVING")
+
+        # Path : [경로파일 선택...]
+        with dpg.group(horizontal=True):
+            dpg.add_text("Path      :", color=(180, 180, 180, 255))
+            _folder_btn(callback=_browse_ad_path)
+        with dpg.group(horizontal=True):
+            dpg.add_text("          ", color=(180, 180, 180, 255))
+            dpg.add_input_text(tag="ad_path", width=-1,
+                               hint="path CSV file", default_value="path_link.csv")
+
+        # ID : [entity_id]
+        with dpg.group(horizontal=True):
+            dpg.add_text("ID        :", color=(180, 180, 180, 255))
+            dpg.add_input_text(tag="ad_entity_id", default_value="Car_1", width=100)
+
+        # VI Port : [9091]
+        with dpg.group(horizontal=True):
+            dpg.add_text("VI Port   :", color=(180, 180, 180, 255))
+            dpg.add_input_int(tag="ad_vi_port", default_value=9091,
+                              min_value=1, max_value=65535, step=0, width=80)
+
+        # Control : [▶ Start] [■ Stop]  status
+        with dpg.group(horizontal=True):
+            dpg.add_text("Control   :", color=(180, 180, 180, 255))
+            dpg.add_button(label="▶ Start", tag="ad_btn_start", callback=_on_ad_start)
+            dpg.add_button(label="■ Stop",  tag="ad_btn_stop",  callback=_on_ad_stop)
+            dpg.add_text(" ", tag="ad_status", color=(160, 160, 160, 255))
+
+
 
 def update_auto_progress(current: int, total: int) -> None:
     def _apply(c=current, t=total):
@@ -459,6 +496,54 @@ def reset_fp_ui(stopped: bool = False) -> None:
         dpg.configure_item("fp_progress_bar", overlay="")
         dpg.set_value("fp_status", "Stopped" if s else "Done")
         log.append(f"[FilePlay] {'중단됨' if s else '재생 완료'}")
+    ui_queue.post(_apply)
+
+
+# ── Autonomous Driving ───────────────────────────────────────
+
+def _browse_ad_path() -> None:
+    def _open():
+        import tkinter as tk
+        from tkinter import filedialog
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        path = filedialog.askopenfilename(
+            title="Select Path CSV File",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+        )
+        root.destroy()
+        if path:
+            ui_queue.post(lambda p=path: dpg.set_value("ad_path", p))
+    threading.Thread(target=_open, daemon=True).start()
+
+
+def _on_ad_start() -> None:
+    if _start_ad_fn is None:
+        log.append("[AD] start_ad_fn이 초기화되지 않았습니다.", level="ERROR")
+        return
+    path      = dpg.get_value("ad_path").strip() or "path_link.csv"
+    entity_id = dpg.get_value("ad_entity_id").strip() or "Car_1"
+    vi_port   = dpg.get_value("ad_vi_port")
+    dpg.configure_item("ad_btn_start", enabled=False)
+    dpg.set_value("ad_status", "● Running")
+    dpg.configure_item("ad_status", color=(100, 220, 100, 255))
+    _start_ad_fn(path, entity_id, vi_port)
+
+
+def _on_ad_stop() -> None:
+    if _stop_ad_fn:
+        _stop_ad_fn()
+
+
+def reset_ad_ui() -> None:
+    """app.py에서 AD 종료 후 호출."""
+    def _apply():
+        if not dpg.does_item_exist("ad_btn_start"):
+            return
+        dpg.configure_item("ad_btn_start", enabled=True)
+        dpg.set_value("ad_status", "● Stopped")
+        dpg.configure_item("ad_status", color=(180, 80, 80, 255))
     ui_queue.post(_apply)
 
 
