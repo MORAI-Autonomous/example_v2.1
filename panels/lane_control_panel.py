@@ -121,30 +121,37 @@ def build(parent: int | str) -> None:
                      color=(140, 140, 100, 255))
         dpg.add_spacer(height=4)
 
-        _slider("Kp",          "lc_kp",           0.50,  0.0, 3.0,  "%.3f", _on_kp)
-        _slider("Kd",          "lc_kd",           0.10,  0.0, 1.0,  "%.3f", _on_kd)
-        _slider("EMA α",       "lc_ema",          0.30,  0.01,1.0,  "%.2f", _on_ema)
-        _slider("Steer Rate",  "lc_steer_rate",   0.15,  0.01,0.5,  "%.3f", _on_steer_rate)
-        _slider("Offset Clip", "lc_offset_clip",  1.50,  0.1, 3.0,  "%.2f", _on_offset_clip)
-        _slider("Target Spd",  "lc_tune_speed",   15.0,  1.0, 100.0,"%.1f", _on_tune_speed,
-                suffix=" km/h", tag_suffix="lc_tune_speed_label",
-                show=dpg.get_value("lc_speed_ctrl") if dpg.does_item_exist("lc_speed_ctrl") else True)
+        # Control(좌) / Noise Filter(우) 2열 배치
+        with dpg.table(header_row=True, borders_innerV=True,
+                       policy=dpg.mvTable_SizingStretchSame):
+            dpg.add_table_column(label="Control")
+            dpg.add_table_column(label="Noise Filter")
 
-        dpg.add_spacer(height=4)
-        dpg.add_text("── 노이즈 필터 ──", color=(140, 140, 140, 255))
-        dpg.add_spacer(height=2)
+            with dpg.table_row():
+                # ── 왼쪽: 제어 슬라이더 ──────────────────────
+                with dpg.group():
+                    _slider("Kp",          "lc_kp",          0.50,  0.0,  3.0,  "%.3f", _on_kp)
+                    _slider("Kd",          "lc_kd",          0.10,  0.0,  1.0,  "%.3f", _on_kd)
+                    _slider("EMA",         "lc_ema",         0.30,  0.01, 1.0,  "%.2f", _on_ema)
+                    _slider("Steer Rate",  "lc_steer_rate",  0.15,  0.01, 0.5,  "%.3f", _on_steer_rate)
+                    _slider("Offset Clip", "lc_offset_clip", 1.50,  0.1,  3.0,  "%.2f", _on_offset_clip)
+                    _slider("Target Spd",  "lc_tune_speed",  15.0,  1.0,  100.0,"%.1f", _on_tune_speed,
+                            suffix=" km/h", tag_suffix="lc_tune_speed_label",
+                            show=dpg.get_value("lc_speed_ctrl") if dpg.does_item_exist("lc_speed_ctrl") else True)
 
-        _slider_int("BEV Top Crop", "lc_bev_top_crop", 80,   0, 240, _on_bev_top_crop,
-                    tooltip="BEV 바이너리 상단 N행 마스킹 (터널 천장/원경 노이즈 제거)")
-        _slider_int("Min Blob",     "lc_min_blob",      50,   0, 500, _on_min_blob,
-                    tooltip="N픽셀 미만 blob 제거 (산점 노이즈 제거)")
-        _slider("Search Ratio",     "lc_search_ratio",  0.50, 0.1, 1.0, "%.2f", _on_search_ratio,
-                tooltip="히스토그램 피크 탐색 범위 (이미지 하단 비율)")
-        _slider_int("Min Pixels",   "lc_min_pixels",    30,   1,  200, _on_min_pixels,
-                    tooltip="슬라이딩 윈도우 최소 픽셀 수")
+                # ── 오른쪽: 노이즈 필터 슬라이더 ─────────────
+                with dpg.group():
+                    _slider_int("BEV Crop",  "lc_bev_top_crop", 80,  0, 240, _on_bev_top_crop,
+                                tooltip="BEV 바이너리 상단 N행 마스킹 (터널 천장/원경 노이즈 제거)")
+                    _slider_int("Min Blob",  "lc_min_blob",      50,  0, 500, _on_min_blob,
+                                tooltip="N픽셀 미만 blob 제거 (산점 노이즈 제거)")
+                    _slider("Srch Ratio",    "lc_search_ratio",  0.50, 0.1, 1.0, "%.2f", _on_search_ratio,
+                            tooltip="히스토그램 피크 탐색 범위 (이미지 하단 비율)")
+                    _slider_int("Min Pix",   "lc_min_pixels",    30,  1,  200, _on_min_pixels,
+                                tooltip="슬라이딩 윈도우 최소 픽셀 수")
 
         dpg.add_spacer(height=6)
-        dpg.add_button(label="↺ Reset Defaults", tag="lc_btn_reset",
+        dpg.add_button(label="Reset Defaults", tag="lc_btn_reset",
                        width=130, callback=_on_reset_tuning)
 
         # ── LIVE VIEW ──────────────────────────────────────────

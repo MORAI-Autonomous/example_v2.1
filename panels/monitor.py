@@ -1,37 +1,21 @@
 # panels/monitor.py
-"""
-Template-driven UDP monitor panel.
-
-Layout (inside mon_scroll child_window)
-───────────────────────────────────────
-┌──────────────────────────────────┐  (child_window height=240)
-│  UDP Monitor                     │
-│  Templates                       │
-│  [ listbox ]                     │
-│  [▶ Open]  [▲ Refresh]          │
-└──────────────────────────────────┘
-┌──────────────────────────────────┐  (child_window height=-1)
-│ ┌─ Vehicle Info ─┬─ IMU ─┐       │
-│ │  IP/Port/...  │        │       │
-│ │  Fields table │        │       │
-│ └───────────────┘        │       │
-└──────────────────────────────────┘
-"""
+# Template-driven UDP monitor panel.
 import json
 import os
 import socket
-import threading
 import time
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 
 import dearpygui.dearpygui as dpg
 
 import utils.ui_queue as ui_queue
 from receivers.template_parser import TemplateParser
+from panels.monitor_utils import (get_templates, tab_label, make_groups,
+                                  fmt, format_repeat_rows)
+from panels.monitor_receiver import UDPThread
 
-# ── Paths ─────────────────────────────────────────────────────────────
-_BASE_DIR  = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_TMPL_DIR  = os.path.join(_BASE_DIR, "templates")
+_BASE_DIR   = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_TMPL_DIR   = os.path.join(_BASE_DIR, "templates")
 _STATE_FILE = os.path.join(_BASE_DIR, "config", "monitor_state.json")
 
 # 하단 탭바 태그 (build() 에서 생성, _open_monitor() 에서 참조)
@@ -53,145 +37,11 @@ _DEFAULT_PORT = 9091
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  Shared helpers
-# ═══════════════════════════════════════════════════════════════════════
-
-def _get_templates() -> List[str]:
-    if not os.path.isdir(_TMPL_DIR):
-        return []
-    return sorted(f for f in os.listdir(_TMPL_DIR) if f.lower().endswith(".tmpl"))
-
-
-def _short_label(variable_name: str, n: int = 2) -> str:
-    parts = variable_name.split(".")
-    return ".".join(parts[-n:]) if len(parts) >= n else variable_name
-
-
-def _tab_label(filename: str) -> str:
-    name = filename.replace(".tmpl", "")
-    return name if len(name) <= 22 else name[:21] + "…"
-
-
-def _make_groups(field_list: List[Dict]) -> List[Dict]:
-    groups: List[Dict] = []
-    i, total = 0, len(field_list)
-    while i < total:
-        nm = field_list[i]["name"].lower()
-
-        # xyzw
-        if (i + 3 < total and nm == "x" and
-                field_list[i+1]["name"].lower() == "y" and
-                field_list[i+2]["name"].lower() == "z" and
-                field_list[i+3]["name"].lower() == "w"):
-            vn  = field_list[i]["variable_name"]
-            pfx = vn.rsplit(".", 1)[0] if "." in vn else vn
-            groups.append({"type": "xyzw", "indices": [i, i+1, i+2, i+3],
-                            "label": _short_label(pfx), "tag": 0})
-            i += 4; continue
-
-        # xyz
-        if (i + 2 < total and nm == "x" and
-                field_list[i+1]["name"].lower() == "y" and
-                field_list[i+2]["name"].lower() == "z"):
-            vn  = field_list[i]["variable_name"]
-            pfx = vn.rsplit(".", 1)[0] if "." in vn else vn
-            groups.append({"type": "xyz", "indices": [i, i+1, i+2],
-                            "label": _short_label(pfx), "tag": 0})
-            i += 3; continue
-
-        # single
-        groups.append({"type": "single", "indices": [i],
-                        "label": _short_label(field_list[i]["variable_name"]),
-                        "tag": 0})
-        i += 1
-    return groups
-
-
-def _fmt(val: Any, var_type: str) -> str:
-    if var_type in ("FLOAT", "DOUBLE"):
-        try:
-            f = float(val)
-            # 너무 크거나 너무 작으면 지수 표기 (:.Nf 가 수십 자리 문자열이 되는 것 방지)
-            if abs(f) >= 1e6 or (f != 0.0 and abs(f) < 1e-4):
-                return f"{f:.6e}" if var_type == "DOUBLE" else f"{f:.4e}"
-            # DOUBLE: 8바이트 정밀도에 맞게 소수점 6자리
-            # FLOAT : 4바이트 정밀도에 맞게 소수점 4자리
-            return f"{f:.6f}" if var_type == "DOUBLE" else f"{f:.4f}"
-        except Exception:
-            return str(val)
-    return str(val)
-
-
-def _format_repeat_rows(rows: List[Dict]) -> str:
-    if not rows:
-        return "(0 items)"
-    lines = [f"({len(rows)} items)"]
-    for idx, row in enumerate(rows):
-        fl = row.get("field_list", [])
-        lines.append(f"[{idx}]")
-        for g in _make_groups(fl):
-            t, ix = g["type"], g["indices"]
-            if t == "xyz":
-                i0, i1, i2 = ix
-                lines.append(
-                    f"  {g['label']}: "
-                    f"X={_fmt(fl[i0]['value'], fl[i0]['type'])}  "
-                    f"Y={_fmt(fl[i1]['value'], fl[i1]['type'])}  "
-                    f"Z={_fmt(fl[i2]['value'], fl[i2]['type'])}"
-                )
-            elif t == "xyzw":
-                i0, i1, i2, i3 = ix
-                lines.append(
-                    f"  {g['label']}: "
-                    f"X={_fmt(fl[i0]['value'], fl[i0]['type'])}  "
-                    f"Y={_fmt(fl[i1]['value'], fl[i1]['type'])}  "
-                    f"Z={_fmt(fl[i2]['value'], fl[i2]['type'])}  "
-                    f"W={_fmt(fl[i3]['value'], fl[i3]['type'])}"
-                )
-            else:
-                i0 = ix[0]
-                lines.append(
-                    f"  {g['label']}: "
-                    f"{_fmt(fl[i0]['value'], fl[i0]['type'])}"
-                )
-    return "\n".join(lines)
-
-
-# ═══════════════════════════════════════════════════════════════════════
-#  UDP receiver thread
-# ═══════════════════════════════════════════════════════════════════════
-
-class _UDPThread(threading.Thread):
-    def __init__(self, sock, parse_fn, on_data, on_error):
-        super().__init__(daemon=True)
-        self.sock     = sock
-        self.parse_fn = parse_fn
-        self.on_data  = on_data
-        self.on_error = on_error
-        self.running  = True
-
-    def stop(self) -> None:
-        self.running = False
-
-    def run(self) -> None:
-        while self.running:
-            try:
-                data, _ = self.sock.recvfrom(65535)
-                parsed  = self.parse_fn(data)
-                if parsed is not None:
-                    self.on_data(parsed)
-            except OSError:
-                if self.running:
-                    self.on_error()
-                break
-
-
-# ═══════════════════════════════════════════════════════════════════════
 #  build()  –  panel entry point
 # ═══════════════════════════════════════════════════════════════════════
 
 def build(parent) -> None:
-    tmpls = _get_templates()
+    tmpls = get_templates()
 
     # ── 상단: child_window 없이 parent에 직접 추가 ───────────────
     # (child_window 래퍼를 쓰면 내부 스크롤바가 생길 수 있음)
@@ -238,7 +88,7 @@ def _on_open(sender=None, app_data=None, user_data=None) -> None:
 
 
 def _on_refresh(sender=None, app_data=None, user_data=None) -> None:
-    tmpls = _get_templates()
+    tmpls = get_templates()
     dpg.configure_item(_T["listbox"], items=tmpls)
 
 
@@ -294,7 +144,7 @@ def _open_monitor(filename: str,
         dpg.configure_item(_HINT_TAG, show=False)
 
     # ── 새 탭 ────────────────────────────────────────────────────
-    with dpg.tab(label=_tab_label(filename), tag=tab_tag,
+    with dpg.tab(label=tab_label(filename), tag=tab_tag,
                  parent=_INNER_TABBAR):
         with dpg.child_window(width=-1, height=-1, border=False):
 
@@ -373,7 +223,7 @@ def _rebuild_display(tab_tag: str) -> None:
 
         fd_list = [{"name": f.name, "variable_name": f.variable_name}
                    for f in seg.fields]
-        groups  = _make_groups(fd_list)
+        groups  = make_groups(fd_list)
 
         # repeat 없으면 테이블이 나머지 공간을 전부 채우도록 child_window로 감쌈
         if not parser.has_repeat:
@@ -439,7 +289,7 @@ def _on_start(sender, app_data, user_data) -> None:
 
     st["sock"]    = sock
     st["running"] = True
-    st["thread"]  = _UDPThread(
+    st["thread"]  = UDPThread(
         sock     = sock,
         parse_fn = st["parser"].parse,
         on_data  = lambda p, tt=tab_tag: _on_data(tt, p),
@@ -514,25 +364,25 @@ def _apply_data(tab_tag: str, parsed: dict) -> None:
         if t == "xyz" and ix[2] < len(fl):
             i0, i1, i2 = ix
             dpg.set_value(tag,
-                f"X={_fmt(fl[i0]['value'], fl[i0]['type'])}  "
-                f"Y={_fmt(fl[i1]['value'], fl[i1]['type'])}  "
-                f"Z={_fmt(fl[i2]['value'], fl[i2]['type'])}")
+                f"X={fmt(fl[i0]['value'], fl[i0]['type'])}  "
+                f"Y={fmt(fl[i1]['value'], fl[i1]['type'])}  "
+                f"Z={fmt(fl[i2]['value'], fl[i2]['type'])}")
 
         elif t == "xyzw" and ix[3] < len(fl):
             i0, i1, i2, i3 = ix
             dpg.set_value(tag,
-                f"X={_fmt(fl[i0]['value'], fl[i0]['type'])}  "
-                f"Y={_fmt(fl[i1]['value'], fl[i1]['type'])}  "
-                f"Z={_fmt(fl[i2]['value'], fl[i2]['type'])}  "
-                f"W={_fmt(fl[i3]['value'], fl[i3]['type'])}")
+                f"X={fmt(fl[i0]['value'], fl[i0]['type'])}  "
+                f"Y={fmt(fl[i1]['value'], fl[i1]['type'])}  "
+                f"Z={fmt(fl[i2]['value'], fl[i2]['type'])}  "
+                f"W={fmt(fl[i3]['value'], fl[i3]['type'])}")
 
         elif t == "single" and ix[0] < len(fl):
             i0 = ix[0]
-            dpg.set_value(tag, _fmt(fl[i0]["value"], fl[i0]["type"]))
+            dpg.set_value(tag, fmt(fl[i0]["value"], fl[i0]["type"]))
 
     rtt = st.get("repeat_text_tag", 0)
     if rtt and dpg.does_item_exist(rtt):
-        dpg.set_value(rtt, _format_repeat_rows(parsed.get("repeat_rows", [])))
+        dpg.set_value(rtt, format_repeat_rows(parsed.get("repeat_rows", [])))
 
 
 # ═══════════════════════════════════════════════════════════════════════

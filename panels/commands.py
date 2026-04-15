@@ -268,27 +268,41 @@ def build(parent: int | str) -> None:
         # ── Autonomous Driving ─────────────────────────────
         _section("AUTONOMOUS DRIVING")
 
-        # Path : [경로파일 선택...]
-        with dpg.group(horizontal=True):
-            dpg.add_text("Path      :", color=(180, 180, 180, 255))
-            _folder_btn(callback=_browse_ad_path)
-        with dpg.group(horizontal=True):
-            dpg.add_text("          ", color=(180, 180, 180, 255))
-            dpg.add_input_text(tag="ad_path", width=-1,
-                               hint="path CSV file", default_value="path_link.csv")
+        # 2-Vehicle 테이블 (Car_1 / Car_2)
+        with dpg.table(header_row=True, borders_innerV=True,
+                       policy=dpg.mvTable_SizingFixedFit):
+            dpg.add_table_column(label="",          width_fixed=True,  init_width_or_weight=68)
+            dpg.add_table_column(label="Vehicle 1", width_stretch=True)
+            dpg.add_table_column(label="Vehicle 2", width_stretch=True)
 
-        # ID : [entity_id]
-        with dpg.group(horizontal=True):
-            dpg.add_text("ID        :", color=(180, 180, 180, 255))
-            dpg.add_input_text(tag="ad_entity_id", default_value="Car_1", width=100)
+            # Path 행
+            with dpg.table_row():
+                dpg.add_text("Path :", color=(180, 180, 180, 255))
+                with dpg.group(horizontal=True):
+                    _folder_btn(callback=lambda: _browse_ad_path(1))
+                    dpg.add_input_text(tag="ad_path_1", width=-1,
+                                       hint="CSV", default_value="path_link.csv")
+                with dpg.group(horizontal=True):
+                    _folder_btn(callback=lambda: _browse_ad_path(2))
+                    dpg.add_input_text(tag="ad_path_2", width=-1,
+                                       hint="CSV", default_value="path_link.csv")
 
-        # VI Port : [9091]
-        with dpg.group(horizontal=True):
-            dpg.add_text("VI Port   :", color=(180, 180, 180, 255))
-            dpg.add_input_int(tag="ad_vi_port", default_value=9091,
-                              min_value=1, max_value=65535, step=0, width=80)
+            # ID 행
+            with dpg.table_row():
+                dpg.add_text("ID :", color=(180, 180, 180, 255))
+                dpg.add_input_text(tag="ad_entity_id_1", default_value="Car_1", width=-1)
+                dpg.add_input_text(tag="ad_entity_id_2", default_value="Car_2", width=-1)
+
+            # VI Port 행
+            with dpg.table_row():
+                dpg.add_text("VI Port :", color=(180, 180, 180, 255))
+                dpg.add_input_int(tag="ad_vi_port_1", default_value=9091,
+                                  min_value=1, max_value=65535, step=0, width=-1)
+                dpg.add_input_int(tag="ad_vi_port_2", default_value=9092,
+                                  min_value=1, max_value=65535, step=0, width=-1)
 
         # Control : [▶ Start] [■ Stop]  status
+        dpg.add_spacer(height=4)
         with dpg.group(horizontal=True):
             dpg.add_text("Control   :", color=(180, 180, 180, 255))
             dpg.add_button(label="▶ Start", tag="ad_btn_start", callback=_on_ad_start)
@@ -501,7 +515,8 @@ def reset_fp_ui(stopped: bool = False) -> None:
 
 # ── Autonomous Driving ───────────────────────────────────────
 
-def _browse_ad_path() -> None:
+def _browse_ad_path(vehicle: int = 1) -> None:
+    tag = f"ad_path_{vehicle}"
     def _open():
         import tkinter as tk
         from tkinter import filedialog
@@ -509,12 +524,12 @@ def _browse_ad_path() -> None:
         root.withdraw()
         root.attributes("-topmost", True)
         path = filedialog.askopenfilename(
-            title="Select Path CSV File",
+            title=f"Select Path CSV File (Vehicle {vehicle})",
             filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
         )
         root.destroy()
         if path:
-            ui_queue.post(lambda p=path: dpg.set_value("ad_path", p))
+            ui_queue.post(lambda p=path, t=tag: dpg.set_value(t, p))
     threading.Thread(target=_open, daemon=True).start()
 
 
@@ -522,13 +537,22 @@ def _on_ad_start() -> None:
     if _start_ad_fn is None:
         log.append("[AD] start_ad_fn이 초기화되지 않았습니다.", level="ERROR")
         return
-    path      = dpg.get_value("ad_path").strip() or "path_link.csv"
-    entity_id = dpg.get_value("ad_entity_id").strip() or "Car_1"
-    vi_port   = dpg.get_value("ad_vi_port")
+    vehicles = [
+        {
+            "path":      dpg.get_value("ad_path_1").strip() or "path_link.csv",
+            "entity_id": dpg.get_value("ad_entity_id_1").strip() or "Car_1",
+            "vi_port":   dpg.get_value("ad_vi_port_1"),
+        },
+        {
+            "path":      dpg.get_value("ad_path_2").strip() or "path_link.csv",
+            "entity_id": dpg.get_value("ad_entity_id_2").strip() or "Car_2",
+            "vi_port":   dpg.get_value("ad_vi_port_2"),
+        },
+    ]
     dpg.configure_item("ad_btn_start", enabled=False)
     dpg.set_value("ad_status", "● Running")
     dpg.configure_item("ad_status", color=(100, 220, 100, 255))
-    _start_ad_fn(path, entity_id, vi_port)
+    _start_ad_fn(vehicles)
 
 
 def _on_ad_stop() -> None:

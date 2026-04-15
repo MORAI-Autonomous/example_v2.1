@@ -1,17 +1,7 @@
 # lane_controller.py
-#
-# Step 4+5: 차선 추종 자율 주행 컨트롤러
+# Camera → LanePreprocessor → LaneDetector → EMA → PD → ManualControlById TCP
+# Vehicle Info UDP → Speed PI → 스로틀 자동 제어
 from __future__ import annotations
-#   Camera UDP → LanePreprocessor → LaneDetector → EMA → PD Controller → ManualControlById (TCP)
-#   Vehicle Info UDP (9091) → 속도 피드백 → Speed PI → 스로틀 자동 제어
-#
-# 실행:
-#   python lane_controller.py
-#   python lane_controller.py --target-speed 30 --kp-spd 0.05
-#   python lane_controller.py --no-speed-ctrl --throttle 0.3   # 고정 스로틀 모드
-#
-# 조작:
-#   Ctrl+C : 정지 명령 전송 후 종료
 
 import math
 import socket
@@ -28,316 +18,20 @@ import transport.protocol_defs as proto
 from receivers.camera_receiver import CameraReceiver
 from lane_control.lane_preprocessor import LanePreprocessor
 from lane_control.lane_detector import LaneDetector
-from receivers.vehicle_info_with_wheel_receiver import parse_vehicle_info_payload
+from lane_control.controllers   import EMAFilter, PDController, SpeedPIController
+from lane_control.vehicle_info  import VehicleInfoThread
+from lane_control.tune_panel    import TunePanel
 
 
-# ─── Request ID 카운터 (단방향 송신이므로 간단한 카운터로 충분) ──
 _rid_iter = itertools.count(1)
 
 def _next_rid() -> int:
     return next(_rid_iter)
 
 
-# ─── EMA 필터 ────────────────────────────────────────────────────
-class EMAFilter:
-    """지수 이동 평균 (Exponential Moving Average)"""
 
-    def __init__(self, alpha: float = 0.3):
-        self.alpha = alpha
-        self._val: float | None = None
-
-    def update(self, x: float) -> float:
-        if self._val is None:
-            self._val = x
-        else:
-            self._val = self.alpha * x + (1.0 - self.alpha) * self._val
-        return self._val
-
-    def reset(self):
-        self._val = None
-
-
-# ─── PD 컨트롤러 ────────────────────────────────────────────────
-class PDController:
-    """
-    steer = Kp × e + Kd × (e - e_prev) / dt
-
-    e > 0  : 차량이 차선 중앙보다 좌측 → 우측으로 조향 (steer > 0)
-    e < 0  : 차량이 차선 중앙보다 우측 → 좌측으로 조향 (steer < 0)
-    """
-
-    def __init__(self, kp: float, kd: float, steer_max: float = 1.0):
-        self.kp        = kp
-        self.kd        = kd
-        self.steer_max = steer_max
-        self._prev_e   = 0.0
-        self._prev_t:  float | None = None
-
-    def compute(self, error: float) -> float:
-        now = time.time()
-        dt  = max(now - self._prev_t, 1e-3) if self._prev_t is not None else 0.05
-        steer = self.kp * error + self.kd * (error - self._prev_e) / dt
-        self._prev_e = error
-        self._prev_t = now
-        return float(np.clip(steer, -self.steer_max, self.steer_max))
-
-    def reset(self):
-        self._prev_e  = 0.0
-        self._prev_t  = None
-
-
-# ─── 실시간 파라미터 튜너 ────────────────────────────────────────
-_TUNE_WIN = "Controller Tuner"
-
-class TunePanel:
-    """
-    OpenCV trackbar 기반 실시간 파라미터 조정 패널.
-    lane_controller.py --tune 옵션으로 활성화.
-
-    슬라이더 목록:
-      Kp, Kd, EMA, SteerMax, SteerRate, OffsetClip, TargetSpeed
-    S 키 : 현재 값 터미널 출력
-    R 키 : 초기값 복원
-    """
-
-    def __init__(self, controller: "LaneController"):
-        self._ctrl = controller
-
-        # 초기값 저장 (R키로 복원)
-        self._defaults = {
-            "kp":         controller._pd.kp,
-            "kd":         controller._pd.kd,
-            "ema":        controller._ema.alpha,
-            "steer_max":  controller._pd.steer_max,
-            "steer_rate": controller._STEER_RATE,
-            "offset_clip":controller._OFFSET_CLIP,
-            "speed":      controller._speed_pi.target_mps * 3.6
-                          if controller._speed_pi else 30.0,
-        }
-
-        cv2.namedWindow(_TUNE_WIN)
-        # 더미 이미지 (trackbar 표시를 위해 창 생성 필요)
-        cv2.imshow(_TUNE_WIN, np.zeros((10, 420, 3), dtype=np.uint8))
-
-        def n(_): pass
-
-        # 값 범위: 슬라이더 정수 → 실제 값 = 슬라이더 / 배율
-        cv2.createTrackbar("Kp x100",    _TUNE_WIN, int(self._defaults["kp"]          * 100), 300, n)
-        cv2.createTrackbar("Kd x100",    _TUNE_WIN, int(self._defaults["kd"]          * 100), 100, n)
-        cv2.createTrackbar("EMA x100",   _TUNE_WIN, int(self._defaults["ema"]         *  99),  99, n)
-        cv2.createTrackbar("SMax x100",  _TUNE_WIN, int(self._defaults["steer_max"]   * 100), 100, n)
-        cv2.createTrackbar("SRate x100", _TUNE_WIN, int(self._defaults["steer_rate"]  * 100),  80, n)
-        cv2.createTrackbar("OClip x10",  _TUNE_WIN, int(self._defaults["offset_clip"] *  10),  30, n)
-        cv2.createTrackbar("Speed kmh",  _TUNE_WIN, int(self._defaults["speed"]),               80, n)
-
-        self._has_speed = controller._speed_pi is not None
-
-    def _g(self, name: str) -> int:
-        return cv2.getTrackbarPos(name, _TUNE_WIN)
-
-    def _set(self, name: str, val: int):
-        cv2.setTrackbarPos(name, _TUNE_WIN, val)
-
-    def read_params(self):
-        """trackbar 값 읽기 → controller 파라미터 반영 (스레드 안전, GUI 없음)"""
-        ctrl = self._ctrl
-        ctrl._pd.kp        = self._g("Kp x100")   / 100.0
-        ctrl._pd.kd        = self._g("Kd x100")   / 100.0
-        ctrl._ema.alpha    = max(0.01, self._g("EMA x100")  /  99.0)
-        ctrl._pd.steer_max = max(0.10, self._g("SMax x100") / 100.0)
-        ctrl._STEER_RATE   = max(0.01, self._g("SRate x100")/ 100.0)
-        ctrl._OFFSET_CLIP  = max(0.30, self._g("OClip x10") /  10.0)
-        if self._has_speed and ctrl._speed_pi is not None:
-            ctrl._speed_pi.set_target(max(5.0, float(self._g("Speed kmh"))))
-
-    def draw(self):
-        """패널 이미지 갱신 + 키 처리 — 반드시 메인 스레드에서 호출"""
-        ctrl = self._ctrl
-        spd  = ctrl._speed_pi.target_mps * 3.6 if ctrl._speed_pi else 0.0
-
-        panel = np.zeros((155, 420, 3), dtype=np.uint8)
-        rows = [
-            ("Kp",     f"{ctrl._pd.kp:.3f}"),
-            ("Kd",     f"{ctrl._pd.kd:.3f}"),
-            ("EMA",    f"{ctrl._ema.alpha:.2f}"),
-            ("SMax",   f"{ctrl._pd.steer_max:.2f}"),
-            ("SRate",  f"{ctrl._STEER_RATE:.3f}"),
-            ("OClip",  f"{ctrl._OFFSET_CLIP:.1f}m"),
-            ("Speed",  f"{spd:.0f}km/h"),
-        ]
-        # 2열 레이아웃으로 압축
-        for i, (label, val) in enumerate(rows):
-            col = (i % 2) * 210
-            row = (i // 2) * 22 + 18
-            cv2.putText(panel, f"{label}:{val}",
-                        (col + 8, row),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.52, (130, 255, 130), 1)
-        cv2.putText(panel, "S=print  R=reset", (8, 148),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.45, (150, 150, 150), 1)
-        cv2.imshow(_TUNE_WIN, panel)
-
-        key = cv2.waitKey(1) & 0xFF
-        if key == ord("s"):
-            self._print_params()
-        elif key == ord("r"):
-            self._reset()
-
-    def _print_params(self):
-        ctrl = self._ctrl
-        spd  = ctrl._speed_pi.target_mps * 3.6 if ctrl._speed_pi else 0.0
-        print("\n─── 현재 파라미터 ───────────────────────────────────")
-        print(f"  Kp          = {ctrl._pd.kp:.3f}")
-        print(f"  Kd          = {ctrl._pd.kd:.3f}")
-        print(f"  EMA alpha   = {ctrl._ema.alpha:.2f}")
-        print(f"  Steer Max   = {ctrl._pd.steer_max:.2f}")
-        print(f"  Steer Rate  = {ctrl._STEER_RATE:.3f}")
-        print(f"  Offset Clip = {ctrl._OFFSET_CLIP:.1f} m")
-        print(f"  Target Spd  = {spd:.0f} km/h")
-        print("─────────────────────────────────────────────────────\n")
-
-    def _reset(self):
-        d = self._defaults
-        self._set("Kp x100",    int(d["kp"]          * 100))
-        self._set("Kd x100",    int(d["kd"]          * 100))
-        self._set("EMA x100",   int(d["ema"]         *  99))
-        self._set("SMax x100",  int(d["steer_max"]   * 100))
-        self._set("SRate x100", int(d["steer_rate"]  * 100))
-        self._set("OClip x10",  int(d["offset_clip"] *  10))
-        self._set("Speed kmh",  int(d["speed"]))
-        print("[Tuner] 파라미터 초기값으로 복원")
-
-
-# ─── Vehicle Info UDP 수신 스레드 (속도 피드백) ──────────────────
-class _VehicleInfoThread(threading.Thread):
-    """
-    Vehicle Info with Wheel UDP 수신 → 최신 속도(m/s) 저장
-    포트: 9091 (vehicle_info_with_wheel_receiver)
-    """
-
-    def __init__(self, ip: str = "127.0.0.1", port: int = 9091,
-                 log_fn=None, data_cb=None):
-        super().__init__(daemon=True, name="vi-recv")
-        self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self._sock.settimeout(1.0)
-        self._sock.bind((ip, port))
-        self._running     = False
-        self._lock        = threading.Lock()
-        self._speed_mps:  float = 0.0
-        self._speed_valid: bool = False   # 한 번이라도 수신됐는지
-        self._log      = log_fn  or (lambda msg, level="INFO": print(f"[VI] {msg}"))
-        self._data_cb  = data_cb  # fn(parsed: dict) — 파싱 결과 콜백
-
-    def get_speed_mps(self) -> float:
-        with self._lock:
-            return self._speed_mps
-
-    def is_valid(self) -> bool:
-        with self._lock:
-            return self._speed_valid
-
-    def stop(self):
-        self._running = False
-        try:
-            self._sock.close()
-        except OSError:
-            pass
-
-    def run(self):
-        self._running = True
-        self._log(f"Vehicle Info 수신 시작 {self._sock.getsockname()}")
-        while self._running:
-            try:
-                data, _ = self._sock.recvfrom(4096)
-                parsed  = parse_vehicle_info_payload(data)
-                if parsed:
-                    v   = parsed["local_velocity"]
-                    spd = (v["x"]**2 + v["y"]**2 + v["z"]**2) ** 0.5
-                    with self._lock:
-                        self._speed_mps   = spd
-                        self._speed_valid = True
-                    if self._data_cb:
-                        try:
-                            self._data_cb(parsed)
-                        except Exception:
-                            pass
-            except socket.timeout:
-                continue
-            except OSError:
-                break
-        self._log("Vehicle Info 수신 종료")
-
-
-# ─── 속도 PI 컨트롤러 ────────────────────────────────────────────
-class SpeedPIController:
-    """
-    target_kmh 로 일정 속도 유지.
-    throttle = clip(Kp*e + Ki*∫e dt, 0, throttle_max)
-    current > target + brake_tol_kmh → 브레이크
-    """
-
-    def __init__(
-        self,
-        target_kmh:    float = 30.0,
-        kp:            float = 0.05,
-        ki:            float = 0.01,
-        throttle_max:  float = 0.8,
-        brake_tol_kmh: float = 3.0,
-    ):
-        self.target_mps    = target_kmh / 3.6
-        self.kp            = kp
-        self.ki            = ki
-        self.throttle_max  = throttle_max
-        self.brake_tol_mps = brake_tol_kmh / 3.6
-        self._integral     = 0.0
-        self._prev_t: float | None = None
-
-    def compute(self, current_mps: float) -> tuple[float, float]:
-        """(throttle, brake) 반환"""
-        now = time.time()
-        dt  = max(now - self._prev_t, 1e-3) if self._prev_t is not None else 0.05
-        self._prev_t = now
-
-        error          = self.target_mps - current_mps
-        self._integral = float(np.clip(self._integral + error * dt, -20.0, 20.0))
-
-        raw_throttle = self.kp * error + self.ki * self._integral
-        throttle     = float(np.clip(raw_throttle, 0.0, self.throttle_max))
-        brake        = 0.0
-
-        # 목표 초과 시 브레이크
-        if current_mps > self.target_mps + self.brake_tol_mps:
-            over  = current_mps - (self.target_mps + self.brake_tol_mps)
-            brake = float(np.clip(self.kp * over * 3.0, 0.0, 0.5))
-            throttle = 0.0
-            self._integral = max(self._integral, 0.0)  # windup 방지
-
-        return throttle, brake
-
-    def set_target(self, kmh: float):
-        self.target_mps = kmh / 3.6
-
-    def reset(self):
-        self._integral = 0.0
-        self._prev_t   = None
-
-
-# ─── 메인 컨트롤러 ───────────────────────────────────────────────
 class LaneController:
-    """
-    카메라 프레임을 받아 차선 검출 → PD 제어 → TCP ManualControlById 전송
-
-    Parameters
-    ----------
-    tcp_sock    : 이미 연결된 TCP 소켓
-    entity_id   : 제어 대상 엔티티 이름 (기본 "Car_1")
-    throttle    : 고정 스로틀 (기본 0.3)
-    kp, kd      : PD 게인
-    ema_alpha   : EMA 스무딩 계수 (0~1, 작을수록 더 매끄러움)
-    steer_max   : 조향각 클리핑 범위
-    show        : True 시 OpenCV 창에 시각화 표시
-    ctrl_hz     : 제어 루프 주파수 (Hz)
-    """
+    """카메라 프레임 → 차선 검출 → PD 제어 → TCP ManualControlById 전송"""
 
     def __init__(
         self,
@@ -387,10 +81,10 @@ class LaneController:
         self._pd           = PDController(kp=kp, kd=kd, steer_max=steer_max)
 
         # 속도 피드백
-        self._vi_thread: _VehicleInfoThread | None = None
+        self._vi_thread: VehicleInfoThread | None = None
         self._speed_pi:  SpeedPIController  | None = None
         if speed_ctrl:
-            self._vi_thread = _VehicleInfoThread(
+            self._vi_thread = VehicleInfoThread(
                 ip=vi_ip, port=vi_port,
                 log_fn=self._log, data_cb=vi_data_cb,
             )
@@ -405,25 +99,18 @@ class LaneController:
         self._lock        = threading.Lock()
         self._latest_frame: np.ndarray | None = None
 
-        # 안정화 파라미터
         self._last_steer:   float = 0.0
         self._no_det_cnt:   int   = 0
-        self._no_valid_cnt: int   = 0   # BAD_W + NO_DET 합산 (재검출 복원율 계산용)
+        self._no_valid_cnt: int   = 0   # BAD_W + NO_DET 합산
         self._det_streak:   int   = 0
         self._ready:        bool  = False
         self._OFFSET_CLIP:  float = 1.5
         self._STEER_RATE:   float = 0.15
-
-        # 실시간 튜닝 패널
-        self._tuning   = tuning
-        self._tune_panel: TunePanel | None = None
-
-        # 녹화
-        self._record_path = record_path
-        self._writer: cv2.VideoWriter | None = None
-
-        # 디버그 합성 이미지 콜백 (GUI 패널용)
-        self._debug_cb = debug_cb
+        self._tuning       = tuning
+        self._tune_panel:  TunePanel | None = None
+        self._record_path  = record_path
+        self._writer:      cv2.VideoWriter | None = None
+        self._debug_cb     = debug_cb
 
     # ── 카메라 콜백 ──────────────────────────────────────────────
     def on_frame(self, frame: np.ndarray):
@@ -501,16 +188,12 @@ class LaneController:
         # 2. Sliding Window 차선 검출
         result = self._detector.detect(pre["binary"])
 
-        bad_offset  = math.isnan(result.offset_m)           # BAD WIDTH nan 체크
-        lane_seen   = result.left_detected or result.right_detected
-        detected    = lane_seen and not bad_offset           # 오프셋까지 유효한 경우
-
-        # prev_no_valid: BAD_W + NO_DET 합산 카운터 (직전 스텝까지 쌓인 값)
-        # BAD_W도 steer를 0으로 decay시키므로, 복원율 계산에 함께 사용
+        bad_offset    = math.isnan(result.offset_m)
+        lane_seen     = result.left_detected or result.right_detected
+        detected      = lane_seen and not bad_offset
         prev_no_valid = self._no_valid_cnt
 
         if lane_seen:
-            # streak / ready 는 차선이 보이기만 해도 카운트 (BAD WIDTH 무관)
             self._det_streak += 1
             self._no_det_cnt  = 0
             if not self._ready:
@@ -521,17 +204,13 @@ class LaneController:
                     self._log(f"차선 대기 중... ({self._det_streak}/{self._min_det_go})")
 
             if detected:
-                # 정상 검출: 오프셋 EMA + PD 업데이트
                 raw_off    = float(np.clip(result.offset_m, -self._OFFSET_CLIP, self._OFFSET_CLIP))
                 smooth_off = self._ema.update(raw_off)
                 steer_raw  = self._pd.compute(smooth_off)
 
                 if prev_no_valid > 0:
-                    # ── BAD_W / NO_DET 이후 복귀: 비대칭 rate limit ──────
-                    # 문제 패턴: steer_raw ≈ 0 (오검출) → rate limit 하한이 매 프레임
-                    #   last_steer - STEER_RATE 씩 감소 → 등속 선형 낙하 (BAD_W 후 0으로 떨어지는 현상)
-                    # 해결: 감소 방향은 STEER_RATE * 0.3 으로 제한
-                    #       증가 방향은 no_valid 카운트 비례로 넓혀 빠른 복원 허용
+                    # BAD_W/NO_DET 후 복귀: 비대칭 rate limit
+                    # 감소방향 0.3×, 증가방향 no_valid 비례로 확대 → 빠른 복원
                     max_inc = self._STEER_RATE * (1.0 + min(prev_no_valid * 0.04, 2.0))
                     max_dec = self._STEER_RATE * 0.3
                     steer   = float(np.clip(steer_raw,
@@ -539,30 +218,26 @@ class LaneController:
                                             self._last_steer + max_inc))
                     status  = f"REC({prev_no_valid})"
                 else:
-                    # ── 정상 주행: 대칭 rate limit ───────────────────────
                     steer  = float(np.clip(steer_raw,
                                            self._last_steer - self._STEER_RATE,
                                            self._last_steer + self._STEER_RATE))
                     status = "DET"
 
                 self._last_steer   = steer
-                self._no_valid_cnt = 0   # 정상 검출 → 카운터 초기화
+                self._no_valid_cnt = 0
             else:
-                # BAD WIDTH: 오프셋/steer 업데이트 스킵, 직전 steer 홀드
-                # (차선이 한쪽이라도 보이는 상황 → 굳이 decay 하지 않음)
+                # BAD WIDTH: steer 홀드 (차선 보이므로 decay 불필요)
                 smooth_off          = self._ema._val if self._ema._val is not None else 0.0
-                steer               = self._last_steer          # hold (0.99 decay 제거)
+                steer               = self._last_steer
                 self._last_steer    = steer
-                self._no_valid_cnt += 1   # BAD_W도 누적
+                self._no_valid_cnt += 1
                 status = f"BAD_W({self._no_valid_cnt})"
         else:
             self._det_streak   = 0
             self._no_det_cnt  += 1
             self._no_valid_cnt += 1
             smooth_off = self._ema._val if self._ema._val is not None else 0.0
-
-            # 미검출 시: 감쇠 속도 완화 (1초 후에도 steer 70% 유지)
-            # 0.985^20 ≈ 0.74, 0.975^20 ≈ 0.60
+            # 미검출 시 완만한 감쇠 (0.985^20≈0.74, 1초 후에도 steer 70% 유지)
             decay = max(0.985 - self._no_det_cnt * 0.001, 0.975)
             steer = self._last_steer * decay
             self._last_steer = steer
@@ -652,19 +327,7 @@ class LaneController:
         speed_mps:  float = 0.0,
         target_mps: float | None = None,
     ) -> np.ndarray:
-        """
-        디버그 합성 이미지 빌드 (1280 × 480).
-        show / debug_cb / recording 에서 공용으로 사용.
-
-        레이아웃:
-        ┌─────────────────────┬──────────────┬──────────────┐
-        │  원본 + ROI 사다리꼴│  BEV 검출    │  이진화      │
-        │     640 × 480       │  320 × 240   │  320 × 240   │
-        │                     ├──────────────┴──────────────┤
-        │                     │  상태 / 조향 게이지          │
-        │                     │        640 × 240            │
-        └─────────────────────┴─────────────────────────────┘
-        """
+        """1280×480 디버그 합성 이미지: 원본(640)+BEV(320×240)+이진화(320×240)+게이지(640×240)"""
         W, H = 1280, 480
         PW   = W // 2
         RW   = W - PW

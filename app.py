@@ -98,7 +98,7 @@ class AppState:
         self.receiver    = None
         self.auto_caller = None
         self.fp_caller   = None
-        self.ad_runner   = None
+        self.ad_runners: list = []
         self.lc_runner   = None
         self._connecting = False
         self._conn_lock  = threading.Lock()
@@ -161,29 +161,33 @@ class AppState:
             self.fp_caller.stop()
             self.fp_caller = None
 
-    def start_ad(self, path_file: str, entity_id: str, vi_port: int) -> None:
-        if self.ad_runner is not None:
+    def start_ad(self, vehicles: list) -> None:
+        if self.ad_runners:
             log_panel.append("[AD] 이미 실행 중입니다.", "WARN")
             return
-        try:
-            self.ad_runner = AdRunner(
-                tcp_sock  = self.tcp_sock,
-                entity_id = entity_id,
-                vi_ip     = "0.0.0.0",
-                vi_port   = vi_port,
-                path_file = path_file,
-                log_fn    = lambda msg, level="INFO": log_panel.append(f"[AD] {msg}", level),
-            )
-            self.ad_runner.start()
-        except Exception as e:
-            log_panel.append(f"[AD] 시작 실패: {e}", "ERROR")
-            self.ad_runner = None
+        for v in vehicles:
+            try:
+                runner = AdRunner(
+                    tcp_sock  = self.tcp_sock,
+                    entity_id = v["entity_id"],
+                    vi_ip     = "0.0.0.0",
+                    vi_port   = v["vi_port"],
+                    path_file = v["path"],
+                    log_fn    = lambda msg, level="INFO", eid=v["entity_id"]:
+                                    log_panel.append(f"[AD:{eid}] {msg}", level),
+                )
+                runner.start()
+                self.ad_runners.append(runner)
+                log_panel.append(f"[AD:{v['entity_id']}] 시작 (port={v['vi_port']})")
+            except Exception as e:
+                log_panel.append(f"[AD:{v['entity_id']}] 시작 실패: {e}", "ERROR")
+        if not self.ad_runners:
             cmd_panel.reset_ad_ui()
 
     def stop_ad(self) -> None:
-        if self.ad_runner:
-            self.ad_runner.stop()
-            self.ad_runner = None
+        for runner in self.ad_runners:
+            runner.stop()
+        self.ad_runners.clear()
         cmd_panel.reset_ad_ui()
 
     def start_lc(
@@ -430,6 +434,29 @@ def build_ui(state: AppState):
             dpg.add_theme_style(dpg.mvStyleVar_WindowPadding,  x=8, y=6)
     dpg.bind_theme(global_theme)
 
+    # ── 커스텀 탭 버튼 테마 (active / inactive) ──────────────────
+    with dpg.theme(tag="theme_tab_active"):
+        with dpg.theme_component(dpg.mvButton):
+            dpg.add_theme_color(dpg.mvThemeCol_Button,        (45, 80, 130, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (60, 100, 160, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonActive,  (45, 80, 130, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_Text,          (255, 255, 255, 255))
+    with dpg.theme(tag="theme_tab_inactive"):
+        with dpg.theme_component(dpg.mvButton):
+            dpg.add_theme_color(dpg.mvThemeCol_Button,        (38, 38, 50, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (55, 90, 140, 180))
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonActive,  (38, 38, 50, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_Text,          (180, 180, 185, 255))
+
+    def _select_tab(name: str) -> None:
+        """UDP Monitor / Lane Control 탭 전환."""
+        dpg.configure_item("mon_scroll", show=(name == "udp"))
+        dpg.configure_item("lc_scroll",  show=(name == "lc"))
+        dpg.bind_item_theme("tab_btn_udp",
+                            "theme_tab_active" if name == "udp" else "theme_tab_inactive")
+        dpg.bind_item_theme("tab_btn_lc",
+                            "theme_tab_active" if name == "lc"  else "theme_tab_inactive")
+
     with dpg.window(tag="main_window", no_title_bar=True,
                     no_resize=True, no_move=True,
                     no_scrollbar=True, no_scroll_with_mouse=True):
@@ -482,18 +509,28 @@ def build_ui(state: AppState):
                                   width=_mon_w(), height=_top_h(),
                                   border=True,
                                   no_scrollbar=True, no_scroll_with_mouse=True):
-                with dpg.tab_bar(tag="mon_tabbar"):
-                    with dpg.tab(label="UDP Monitor", tag="tab_udp"):
-                        with dpg.child_window(tag="mon_scroll",
-                                              width=-1, height=-1,
-                                              border=False):
-                            monitor_panel.build(parent="mon_scroll")
+                # ── 커스텀 탭 버튼 행 ──────────────────────────
+                with dpg.group(horizontal=True):
+                    dpg.add_button(label=" UDP Monitor ", tag="tab_btn_udp",
+                                   callback=lambda: _select_tab("udp"))
+                    dpg.add_button(label=" Lane Control ", tag="tab_btn_lc",
+                                   callback=lambda: _select_tab("lc"))
+                dpg.add_separator()
 
-                    with dpg.tab(label="Lane Control", tag="tab_lc"):
-                        with dpg.child_window(tag="lc_scroll",
-                                              width=-1, height=-1,
-                                              border=False):
-                            lc_panel.build(parent="lc_scroll")
+                # ── 탭 콘텐츠 (한 번에 하나만 표시) ───────────
+                with dpg.child_window(tag="mon_scroll",
+                                      width=-1, height=-1,
+                                      border=False, show=True):
+                    monitor_panel.build(parent="mon_scroll")
+
+                with dpg.child_window(tag="lc_scroll",
+                                      width=-1, height=-1,
+                                      border=False, show=False):
+                    lc_panel.build(parent="lc_scroll")
+
+                # 초기 버튼 테마 적용
+                dpg.bind_item_theme("tab_btn_udp", "theme_tab_active")
+                dpg.bind_item_theme("tab_btn_lc",  "theme_tab_inactive")
 
         # ── 하단: 로그 ────────────────────────────────────
         # no_scrollbar=True: log_child 가 자체 스크롤 담당
@@ -591,8 +628,8 @@ def main():
         state.auto_caller.stop()
     if state.fp_caller and state.fp_caller.is_alive():
         state.fp_caller.stop()
-    if state.ad_runner:
-        state.ad_runner.stop()
+    for _runner in state.ad_runners:
+        _runner.stop()
     if state.lc_runner:
         state.lc_runner.stop()
     if state.receiver:

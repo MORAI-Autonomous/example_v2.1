@@ -1,0 +1,32 @@
+# Claude Code 컨텍스트 제외 목록
+# 이 파일에 적힌 경로는 Claude가 자동 탐색/읽기 시 무시한다.
+
+# Python 캐시
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# MGeo 외부 라이브러리 (읽기 전용, 수정 불필요)
+autonomous_driving/mgeo/
+
+# 런타임 자동 생성 파일
+config/
+*.mp4
+*.avi
+*.json.bak
+
+# Git 내부
+.git/
+
+# IDE / OS
+.vscode/
+.idea/
+*.DS_Store
+Thumbs.db
+
+# 빌드/배포 산출물
+dist/
+build/
+*.egg-info/
