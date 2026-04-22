@@ -739,13 +739,20 @@ def main():
 
     # ── 프레임 성능 통계 ──────────────────────────────────────
     _FRAME_WARN_MS  = 150.0
-    _STAT_INTERVAL  = 5.0    # 통계 출력 주기(초)
+    _TARGET_FPS     = 60                    # idle 시 최대 fps 제한
+    _TARGET_FRAME_S = 1.0 / _TARGET_FPS
+    _STAT_INTERVAL  = 5.0                   # 통계 출력 주기(초)
     _stat_t         = time.monotonic()
     _stat_render_ms = 0.0
     _stat_drain_n   = 0
     _stat_frames    = 0
 
+    # viewport 위치/크기 추적 (window drag 진단)
+    _last_vp_pos  = list(dpg.get_viewport_pos())
+    _last_vp_size = [dpg.get_viewport_width(), dpg.get_viewport_height()]
+
     while dpg.is_dearpygui_running():
+        frame_start = time.perf_counter()
         _frame_ts[0] = time.monotonic()
 
         # ── log flush: pending 라인 → set_value 최대 1회 ─────
@@ -760,11 +767,44 @@ def main():
             print(f"[PERF] drain() {drain_ms:.1f}ms  items={n_drained}")
 
         # ── DPG render ───────────────────────────────────────
+        # render 직전 viewport 위치/크기 기록 (window drag 감지)
+        pre_pos  = list(dpg.get_viewport_pos())
+        pre_size = [dpg.get_viewport_width(), dpg.get_viewport_height()]
+
         dpg.render_dearpygui_frame()
+
         t2 = time.perf_counter()
         render_ms = (t2 - t1) * 1000.0
+
+        # render 직후 위치/크기 변화 확인 → window drag/resize 감지
+        post_pos  = list(dpg.get_viewport_pos())
+        post_size = [dpg.get_viewport_width(), dpg.get_viewport_height()]
+        vp_moved   = (post_pos  != pre_pos)
+        vp_resized = (post_size != pre_size)
+
         if render_ms > _FRAME_WARN_MS:
-            print(f"[PERF] render() {render_ms:.1f}ms  drain_items={n_drained}")
+            diag = []
+            if vp_moved:
+                diag.append(f"window_moved {pre_pos}→{post_pos}")
+            if vp_resized:
+                diag.append(f"window_resized {pre_size}→{post_size}")
+            diag_str = "  " + "  ".join(diag) if diag else ""
+            print(f"[PERF] render() {render_ms:.1f}ms  drain_items={n_drained}{diag_str}")
+
+        # viewport 위치/크기 변화 별도 로그 (느린 프레임이 아니어도)
+        if post_pos != _last_vp_pos:
+            print(f"[DIAG] window moved  {_last_vp_pos} → {post_pos}")
+            _last_vp_pos = post_pos
+        if post_size != _last_vp_size:
+            print(f"[DIAG] window resized {_last_vp_size} → {post_size}")
+            _last_vp_size = post_size
+
+        # ── idle fps 제한 (60fps 상한) ──────────────────────
+        # render가 빠를 때 5000fps로 GPU 혹사 방지
+        elapsed = t2 - frame_start
+        sleep_t = _TARGET_FRAME_S - elapsed
+        if sleep_t > 0.001:
+            time.sleep(sleep_t)
 
         # ── 5초 평균 통계 ────────────────────────────────────
         _stat_render_ms += render_ms
