@@ -348,7 +348,12 @@ def _on_data(tab_tag: str, parsed: dict) -> None:
     ui_queue.post(lambda tt=tab_tag, p=parsed: _apply_data(tt, p))
 
 
+_APPLY_WARN_MS   = 30.0   # _apply_data 가 이 시간 초과 시 경고
+_REPEAT_WARN_LEN = 2000   # repeat 문자열이 이 길이 초과 시 경고
+
 def _apply_data(tab_tag: str, parsed: dict) -> None:
+    t_start = time.perf_counter()
+
     st = _monitors.get(tab_tag)
     if not st:
         return
@@ -382,7 +387,17 @@ def _apply_data(tab_tag: str, parsed: dict) -> None:
 
     rtt = st.get("repeat_text_tag", 0)
     if rtt and dpg.does_item_exist(rtt):
-        dpg.set_value(rtt, format_repeat_rows(parsed.get("repeat_rows", [])))
+        repeat_str = format_repeat_rows(parsed.get("repeat_rows", []))
+        if len(repeat_str) > _REPEAT_WARN_LEN:
+            print(f"[Monitor] repeat string large: {len(repeat_str)} chars"
+                  f"  rows={len(parsed.get('repeat_rows', []))}")
+        dpg.set_value(rtt, repeat_str)
+
+    ms = (time.perf_counter() - t_start) * 1000.0
+    if ms > _APPLY_WARN_MS:
+        print(f"[Monitor] _apply_data slow {ms:.1f}ms  tab={tab_tag}"
+              f"  fields={len(st['field_groups'])}"
+              f"  repeat_rows={len(parsed.get('repeat_rows', []))}")
 
 
 # ═══════════════════════════════════════════════════════════════════════

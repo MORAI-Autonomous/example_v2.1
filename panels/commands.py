@@ -1,6 +1,8 @@
 # panels/commands.py
 from __future__ import annotations
 from typing import Callable, Optional
+import json
+import os
 import threading
 
 import dearpygui.dearpygui as dpg
@@ -9,9 +11,18 @@ import transport.protocol_defs as proto
 import transport.tcp_transport as tcp
 import panels.log as log
 
+_STATE_FILE = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "config", "commands_state.json"
+)
+
 _tcp_sock                           = None
 _dispatch:         Optional[Callable] = None
 _toggle_auto:      Optional[Callable] = None
+_timer_cancel:     threading.Event    = threading.Event()
+_timer_thread:     Optional[threading.Thread] = None
+_elapsed_cancel:   threading.Event    = threading.Event()
+_elapsed_thread:   Optional[threading.Thread] = None
 
 def init(tcp_sock, dispatch_fn: Callable, toggle_auto_fn: Callable) -> None:
     global _tcp_sock, _dispatch, _toggle_auto
@@ -86,20 +97,46 @@ def build(parent: int | str) -> None:
             dpg.add_input_text(tag="sc_name", default_value="",
                                width=-1, hint="scenario name")
 
+        # Auto Stop : [checkbox] [min] m [sec] s
+        with dpg.group(horizontal=True):
+            dpg.add_text("Auto Stop :", color=(180, 180, 180, 255))
+            dpg.add_checkbox(tag="sc_timer_enabled", default_value=True)
+            dpg.add_input_int(tag="sc_timer_min", default_value=1,
+                              min_value=0, max_value=99, step=0, width=45)
+            dpg.add_text("m", color=(160, 160, 160, 255))
+            dpg.add_input_int(tag="sc_timer_sec", default_value=0,
+                              min_value=0, max_value=59, step=0, width=45)
+            dpg.add_text("s", color=(160, 160, 160, 255))
+
+        # Elapsed
+        with dpg.group(horizontal=True):
+            dpg.add_text("Elapsed   :", color=(180, 180, 180, 255))
+            dpg.add_text("0:00", tag="sc_elapsed_text", color=(160, 200, 160, 255))
+
         # Control : [Prev] [Stop] [Play] [Pause] [Next]
-        _SC = {"◀◀": 4, "■": 3, "▶": 1, "II": 2, "▶▶": 5}
+        _SC_OTHERS = {"◀◀": 4, "II": 2, "▶▶": 5}
         with dpg.group(horizontal=True):
             dpg.add_text("Control   :", color=(180, 180, 180, 255))
-            for label, cmd in _SC.items():
-                dpg.add_button(
-                    label=label,
-                    user_data=cmd,
-                    callback=lambda s, a, u: _dispatch(
-                        proto.MSG_TYPE_SCENARIO_CONTROL,
-                        lambda rid, cc=u: tcp.send_scenario_control(
-                            _tcp_sock, rid,
-                            command=cc,
-                            scenario_name=dpg.get_value("sc_name"))))
+            dpg.add_button(label="◀◀", user_data=4,
+                callback=lambda s, a, u: _dispatch(
+                    proto.MSG_TYPE_SCENARIO_CONTROL,
+                    lambda rid, cc=u: tcp.send_scenario_control(
+                        _tcp_sock, rid, command=cc,
+                        scenario_name=dpg.get_value("sc_name"))))
+            dpg.add_button(label="■", callback=_on_sc_stop)
+            dpg.add_button(label="▶", callback=_on_sc_play)
+            dpg.add_button(label="II", user_data=2,
+                callback=lambda s, a, u: _dispatch(
+                    proto.MSG_TYPE_SCENARIO_CONTROL,
+                    lambda rid, cc=u: tcp.send_scenario_control(
+                        _tcp_sock, rid, command=cc,
+                        scenario_name=dpg.get_value("sc_name"))))
+            dpg.add_button(label="▶▶", user_data=5,
+                callback=lambda s, a, u: _dispatch(
+                    proto.MSG_TYPE_SCENARIO_CONTROL,
+                    lambda rid, cc=u: tcp.send_scenario_control(
+                        _tcp_sock, rid, command=cc,
+                        scenario_name=dpg.get_value("sc_name"))))
 
         # Status : [Get]
         with dpg.group(horizontal=True):
@@ -212,6 +249,7 @@ def build(parent: int | str) -> None:
         dpg.add_progress_bar(tag="auto_progress_bar",
                              default_value=0.0, width=-1, overlay="")
 
+        _load_state()
 
 
 def update_auto_progress(current: int, total: int) -> None:
@@ -247,6 +285,82 @@ def _on_auto_toggle() -> None:
     dpg.configure_item("btn_auto", label=label)
 
 
+def _on_sc_play() -> None:
+    _save_state()
+    _timer_cancel.set()
+    _elapsed_cancel.set()
+    _start_elapsed_counter()
+    _start_sc_timer()
+    _dispatch(
+        proto.MSG_TYPE_SCENARIO_CONTROL,
+        lambda rid: tcp.send_scenario_control(
+            _tcp_sock, rid, command=1,
+            scenario_name=dpg.get_value("sc_name")))
+
+
+def _on_sc_stop() -> None:
+    _timer_cancel.set()
+    _elapsed_cancel.set()
+    ui_queue.post(lambda: dpg.does_item_exist("sc_elapsed_text") and
+                  dpg.set_value("sc_elapsed_text", "0:00"))
+    _dispatch(
+        proto.MSG_TYPE_SCENARIO_CONTROL,
+        lambda rid: tcp.send_scenario_control(
+            _tcp_sock, rid, command=3,
+            scenario_name=dpg.get_value("sc_name")))
+
+
+def _start_sc_timer() -> None:
+    global _timer_thread, _timer_cancel
+    if not dpg.get_value("sc_timer_enabled"):
+        return
+    total_sec = dpg.get_value("sc_timer_min") * 60 + dpg.get_value("sc_timer_sec")
+    if total_sec <= 0:
+        return
+    _timer_cancel = threading.Event()
+    cancel      = _timer_cancel
+    elapsed_ev  = _elapsed_cancel   # 생성 시점의 이벤트를 캡처
+    sc_name     = dpg.get_value("sc_name")
+
+    def _run() -> None:
+        timed_out = not cancel.wait(timeout=total_sec)
+        # 타임아웃 후라도 수동 Stop으로 cancel이 set됐으면 중복 전송 방지
+        if timed_out and not cancel.is_set():
+            elapsed_ev.set()        # 캡처한 이벤트만 조작
+            log.append(f"[Scenario] {total_sec}초 경과 — 자동 정지")
+            _dispatch(
+                proto.MSG_TYPE_SCENARIO_CONTROL,
+                lambda rid: tcp.send_scenario_control(
+                    _tcp_sock, rid, command=3, scenario_name=sc_name))
+
+    _timer_thread = threading.Thread(target=_run, daemon=True)
+    _timer_thread.start()
+
+
+def _start_elapsed_counter() -> None:
+    global _elapsed_thread, _elapsed_cancel
+    auto_stop = dpg.get_value("sc_timer_enabled")
+    total_sec = dpg.get_value("sc_timer_min") * 60 + dpg.get_value("sc_timer_sec")
+    _elapsed_cancel = threading.Event()
+    cancel = _elapsed_cancel
+
+    def _fmt(s: int) -> str:
+        return f"{s // 60}:{s % 60:02d}"
+
+    def _run() -> None:
+        elapsed = 0
+        while True:
+            text = f"{_fmt(elapsed)} / {_fmt(total_sec)}" if (auto_stop and total_sec > 0) else _fmt(elapsed)
+            ui_queue.post(lambda t=text: dpg.does_item_exist("sc_elapsed_text") and
+                          dpg.set_value("sc_elapsed_text", t))
+            if cancel.wait(timeout=1.0):
+                break
+            elapsed += 1
+
+    _elapsed_thread = threading.Thread(target=_run, daemon=True)
+    _elapsed_thread.start()
+
+
 def _browse_suite() -> None:
     def _open_dialog():
         import tkinter as tk
@@ -260,7 +374,7 @@ def _browse_suite() -> None:
         )
         root.destroy()
         if path:
-            ui_queue.post(lambda p=path: dpg.set_value("suite_path", p))
+            ui_queue.post(lambda p=path: (dpg.set_value("suite_path", p), _save_state()))
     threading.Thread(target=_open_dialog, daemon=True).start()
 
 
@@ -269,6 +383,7 @@ def _load_suite() -> None:
     if not path:
         log.append("[Suite] 파일 경로가 없습니다. Browse로 파일을 선택해 주세요.", level="WARN")
         return
+    _save_state()
     _dispatch(
         proto.MSG_TYPE_LOAD_SUITE,
         lambda rid: tcp.send_load_suite(_tcp_sock, rid, suite_path=path),
@@ -314,6 +429,39 @@ def _folder_btn(callback) -> None:
         _dpg.add_image_button("folder_icon", width=22, height=22, callback=callback)
     else:
         _dpg.add_button(label="...", callback=callback)
+
+
+def _save_state() -> None:
+    try:
+        os.makedirs(os.path.dirname(_STATE_FILE), exist_ok=True)
+        data = {
+            "suite_path":        dpg.get_value("suite_path"),
+            "sc_timer_enabled":  dpg.get_value("sc_timer_enabled"),
+            "sc_timer_min":      dpg.get_value("sc_timer_min"),
+            "sc_timer_sec":      dpg.get_value("sc_timer_sec"),
+        }
+        with open(_STATE_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        print(f"[Commands] save state error: {e}")
+
+
+def _load_state() -> None:
+    if not os.path.isfile(_STATE_FILE):
+        return
+    try:
+        with open(_STATE_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if data.get("suite_path") and dpg.does_item_exist("suite_path"):
+            dpg.set_value("suite_path", data["suite_path"])
+        if dpg.does_item_exist("sc_timer_enabled"):
+            dpg.set_value("sc_timer_enabled", data.get("sc_timer_enabled", True))
+        if dpg.does_item_exist("sc_timer_min"):
+            dpg.set_value("sc_timer_min", data.get("sc_timer_min", 1))
+        if dpg.does_item_exist("sc_timer_sec"):
+            dpg.set_value("sc_timer_sec", data.get("sc_timer_sec", 0))
+    except Exception as e:
+        print(f"[Commands] load state error: {e}")
 
 
 def _section(label: str) -> None:

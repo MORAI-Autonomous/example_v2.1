@@ -12,7 +12,7 @@ from .mgeo.calc_mgeo_path import mgeo_dijkstra_path
 
 
 class AutonomousDriving:
-    def __init__(self, path_file_name=None):
+    def __init__(self, path_file_name=None, map_name=None):
         config = Config()
 
         if config["map"]["use_mgeo_path"]:
@@ -23,7 +23,7 @@ class AutonomousDriving:
             )
         else:
             if path_file_name:
-                self.path = config.load_path(path_file_name)
+                self.path = config.load_path(path_file_name, map_name=map_name)
             else:
                 self.path = config["map"]["path"]
             self.path_manager = PathManager(

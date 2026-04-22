@@ -1,13 +1,13 @@
+from __future__ import annotations
+
 # ad_runner.py
 #
 # autonomous_driving 모듈 기반 단독 자율주행 실행 스크립트
 # 제어 명령: TCP ManualControlById (0x1302)
 #
-# 실행:
-#   python ad_runner.py
-#   python ad_runner.py --ego-port 9091 --tcp-ip 127.0.0.1 --tcp-port 20000
-#
-# 종료: Ctrl+C
+# 충돌 모드(is_chaser=True) 시:
+#   - AutonomousDriving 대신 target 방향 추적 + 고정 스로틀
+#   - target 위치는 모듈 수준 _shared_positions 레지스트리 경유
 
 import argparse
 import itertools
@@ -23,65 +23,104 @@ from autonomous_driving.autonomous_driving import AutonomousDriving
 from autonomous_driving.vehicle_state import VehicleState
 
 
-# ─── 조향각 최대값 (rad) — 노말라이즈 기준 ───────────────────────────
-MAX_STEER_RAD = 0.5   # pure pursuit 출력을 -1~1 로 변환할 때 사용
+# ─── 조향각 최대값 (rad) ────────────────────────────────────────
+MAX_STEER_RAD = 0.5
 
-# ─── Request ID 카운터 ────────────────────────────────────────────
+# ─── Request ID 카운터 ──────────────────────────────────────────
 _rid_iter = itertools.count(1)
 
 def _next_rid() -> int:
     return next(_rid_iter)
 
 
-# ─── Runner ──────────────────────────────────────────────────────
+# ─── 속도 비례 제어 ──────────────────────────────────────────────
+_SPEED_GAIN = 0.1   # throttle·brake per kph error
+
+def _speed_ctrl(current_kph: float, target_kph: float):
+    """현재 속도와 목표 속도 차이로 throttle / brake 계산."""
+    err = target_kph - current_kph
+    if err > 0:
+        return float(np.clip(err * _SPEED_GAIN, 0.0, 1.0)), 0.0
+    else:
+        return 0.0, float(np.clip(-err * _SPEED_GAIN, 0.0, 0.5))
+
+
+# ─── 공유 위치 레지스트리 (충돌 모드: runner 간 위치 공유) ─────────
+_shared_positions: dict = {}   # entity_id → {"x": float, "y": float, "speed_kph": float}
+_shared_pos_lock  = threading.Lock()
+
+def _update_shared_pos(entity_id: str, x: float, y: float, speed_kph: float) -> None:
+    with _shared_pos_lock:
+        _shared_positions[entity_id] = {"x": x, "y": y, "speed_kph": speed_kph}
+
+def _get_shared_pos(entity_id: str) -> dict:
+    with _shared_pos_lock:
+        return dict(_shared_positions.get(entity_id, {}))
+
+def clear_shared_positions() -> None:
+    with _shared_pos_lock:
+        _shared_positions.clear()
+
+
+# ─── Runner ─────────────────────────────────────────────────────
 class AdRunner:
     def __init__(
         self,
-        tcp_sock:  socket.socket,
-        entity_id: str,
-        vi_ip:     str,
-        vi_port:   int,
-        path_file:  str = 'path_link.csv',
+        tcp_sock:          socket.socket,
+        entity_id:         str,
+        vi_ip:             str,
+        vi_port:           int,
+        path_file:         str   = "path_link.csv",
+        map_name:          str   = None,
         log_fn=None,
         status_cb=None,
+        # 충돌 모드 파라미터
+        is_chaser:            bool  = False,
+        is_collision_target:  bool  = False,
+        target_entity_id:     str   = None,
+        speed_kph:            float = 60.0,   # target 정속 / chaser = ×1.2
+        trigger_kph:          float = 5.0,
     ):
-        # UDP 수신 소켓 (Vehicle Info)
+        # UDP 수신 소켓
         self._recv_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self._recv_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self._recv_sock.settimeout(2.0)
         self._recv_sock.bind((vi_ip, vi_port))
 
-        # TCP 소켓 (제어 명령 송신)
-        self._tcp_sock  = tcp_sock
-        self._entity_id = entity_id
+        self._tcp_sock              = tcp_sock
+        self._entity_id             = entity_id
+        self._is_chaser             = is_chaser
+        self._is_collision_target   = is_collision_target
+        self._target_entity_id      = target_entity_id
+        self._target_speed_kph      = speed_kph if not is_chaser else speed_kph * 1.2
+        self._trigger_kph           = trigger_kph
 
-        # 자율주행 모듈
-        self._ad = AutonomousDriving(path_file)
+        self._ad = AutonomousDriving(path_file, map_name=map_name)
 
-        self._running    = False
-        self._lock       = threading.Lock()
-        self._latest     = None
-        self._log        = log_fn or (lambda msg, level="INFO": print(f"[AD] {msg}"))
-        self._status_cb  = status_cb or (lambda *a: None)
+        self._running   = False
+        self._lock      = threading.Lock()
+        self._latest    = None
+        self._log       = log_fn or (lambda msg, level="INFO": print(f"[AD] {msg}"))
+        self._status_cb = status_cb or (lambda *a: None)
 
+        role = "Chaser" if is_chaser else "PathFollow"
         self._log(f"Vehicle Info 수신 : {vi_ip}:{vi_port}")
-        self._log(f"TCP 제어          : entity_id={entity_id}")
+        self._log(f"TCP 제어          : entity_id={entity_id} ({role})")
 
-    def start(self):
-        """논블로킹 시작 — 수신/제어 루프를 각각 데몬 스레드로 실행."""
+    def start(self) -> None:
         self._running = True
         threading.Thread(target=self._recv_loop,    daemon=True).start()
         threading.Thread(target=self._control_loop, daemon=True).start()
 
-    def stop(self):
+    def stop(self) -> None:
         self._running = False
         try:
             self._recv_sock.close()
         except Exception:
             pass
 
-    # ── UDP 수신 스레드 ──────────────────────────────────────────
-    def _recv_loop(self):
+    # ── UDP 수신 ────────────────────────────────────────────────
+    def _recv_loop(self) -> None:
         while self._running:
             try:
                 data, _ = self._recv_sock.recvfrom(65535)
@@ -94,8 +133,8 @@ class AdRunner:
             except OSError:
                 break
 
-    # ── 제어 루프 (30Hz) ─────────────────────────────────────────
-    def _control_loop(self):
+    # ── 제어 루프 (30Hz) ────────────────────────────────────────
+    def _control_loop(self) -> None:
         sampling_time = 1.0 / 30.0
         self._log("주행 시작")
 
@@ -106,38 +145,18 @@ class AdRunner:
                 parsed = self._latest
 
             if parsed:
-                vehicle_state = VehicleState(
-                    x        = parsed["location"]["x"],
-                    y        = parsed["location"]["y"],
-                    yaw      = np.deg2rad(parsed["rotation"]["z"]),
-                    velocity = parsed["local_velocity"]["x"] / 3.6,
+                # 항상 공유 레지스트리에 현재 위치/속도 기록
+                speed_kph = abs(parsed["local_velocity"]["x"]) * 3.6
+                _update_shared_pos(
+                    self._entity_id,
+                    parsed["location"]["x"],
+                    parsed["location"]["y"],
+                    speed_kph,
                 )
-
-                try:
-                    control_input, _ = self._ad.execute(vehicle_state)
-                    steer_norm = float(np.clip(
-                        control_input.steering / MAX_STEER_RAD, -1.0, 1.0
-                    ))
-
-                    tcp.send_manual_control_by_id(
-                        self._tcp_sock,
-                        _next_rid(),
-                        entity_id   = self._entity_id,
-                        throttle    = control_input.accel,
-                        brake       = control_input.brake,
-                        steer_angle = steer_norm,
-                    )
-                    self._status_cb(
-                        self._entity_id,
-                        vehicle_state.position.x,
-                        vehicle_state.position.y,
-                        vehicle_state.velocity * 3.6,
-                        control_input.accel,
-                        control_input.brake,
-                        steer_norm,
-                    )
-                except Exception as e:
-                    self._log(f"ERROR: {e}", "ERROR")
+                if self._is_chaser:
+                    self._run_chaser(parsed)
+                else:
+                    self._run_path_follow(parsed)
             else:
                 self._log("차량 상태 대기 중...", "INFO")
 
@@ -148,23 +167,72 @@ class AdRunner:
 
         self._log("주행 종료")
 
+    # ── 경로 추종 ────────────────────────────────────────────────
+    def _run_path_follow(self, parsed: dict) -> None:
+        vs = VehicleState(
+            x        = parsed["location"]["x"],
+            y        = parsed["location"]["y"],
+            yaw      = np.deg2rad(parsed["rotation"]["z"]),
+            velocity = parsed["local_velocity"]["x"] / 3.6,
+        )
+        try:
+            ctrl, _ = self._ad.execute(vs)
+            steer_norm = float(np.clip(ctrl.steering / MAX_STEER_RAD, -1.0, 1.0))
 
-# ─── 진입점 ──────────────────────────────────────────────────────
+            if self._is_collision_target or self._is_chaser:
+                # 충돌 모드: 조향은 Pure Pursuit, 속도는 설정값으로 고정
+                # (target = speed_kph, chaser = speed_kph × 1.2)
+                current_kph = abs(parsed["local_velocity"]["x"]) * 3.6
+                throttle, brake = _speed_ctrl(current_kph, self._target_speed_kph)
+            else:
+                throttle, brake = ctrl.accel, ctrl.brake
+
+            tcp.send_manual_control_by_id(
+                self._tcp_sock, _next_rid(),
+                entity_id   = self._entity_id,
+                throttle    = throttle,
+                brake       = brake,
+                steer_angle = steer_norm,
+            )
+            self._status_cb(
+                self._entity_id,
+                vs.position.x, vs.position.y,
+                vs.velocity * 3.6,
+                throttle, brake, steer_norm,
+            )
+        except Exception as e:
+            self._log(f"ERROR: {e}", "ERROR")
+
+    # ── 충돌 추적 ────────────────────────────────────────────────
+    def _run_chaser(self, parsed: dict) -> None:
+        """Trigger 조건 확인 후 Path Follow 로 주행 (Pure Pursuit 조향 + speed × 1.2)."""
+        target = _get_shared_pos(self._target_entity_id)
+        if not target:
+            return   # target 위치 아직 미수신
+
+        # trigger: target 속도가 기준 이상이어야 출발
+        if target["speed_kph"] < self._trigger_kph:
+            tcp.send_manual_control_by_id(
+                self._tcp_sock, _next_rid(),
+                entity_id=self._entity_id,
+                throttle=0.0, brake=0.5, steer_angle=0.0,
+            )
+            return
+
+        # target 출발 확인 → Pure Pursuit 경로 추종으로 추돌
+        self._run_path_follow(parsed)
+
+
+# ─── 진입점 ─────────────────────────────────────────────────────
 def main():
     parser = argparse.ArgumentParser(description="autonomous_driving 단독 실행 스크립트")
-    parser.add_argument("--tcp-ip",    default=proto.TCP_SERVER_IP,
-                        help=f"시뮬레이터 TCP IP (기본: {proto.TCP_SERVER_IP})")
-    parser.add_argument("--tcp-port",  type=int, default=proto.TCP_SERVER_PORT,
-                        help=f"시뮬레이터 TCP 포트 (기본: {proto.TCP_SERVER_PORT})")
-    parser.add_argument("--ego-ip",    default="127.0.0.1",
-                        help="EgoInfo UDP 수신 IP (기본: 127.0.0.1)")
-    parser.add_argument("--ego-port",  type=int, default=9091,
-                        help="EgoInfo UDP 수신 포트 (기본: 9091)")
-    parser.add_argument("--entity-id", default="Car_1",
-                        help="제어할 차량 entity_id (기본: Car_1)")
+    parser.add_argument("--tcp-ip",    default=proto.TCP_SERVER_IP)
+    parser.add_argument("--tcp-port",  type=int, default=proto.TCP_SERVER_PORT)
+    parser.add_argument("--ego-ip",    default="127.0.0.1")
+    parser.add_argument("--ego-port",  type=int, default=9091)
+    parser.add_argument("--entity-id", default="Car_1")
     args = parser.parse_args()
 
-    # TCP 연결
     print(f"[AD] TCP 연결 중 → {args.tcp_ip}:{args.tcp_port} ...")
     tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     tcp_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
@@ -178,12 +246,12 @@ def main():
     runner = AdRunner(
         tcp_sock  = tcp_sock,
         entity_id = args.entity_id,
-        ego_ip    = args.ego_ip,
-        ego_port  = args.ego_port,
+        vi_ip     = args.ego_ip,
+        vi_port   = args.ego_port,
     )
-
     try:
         runner.start()
+        threading.Event().wait()   # Ctrl+C 대기
     except KeyboardInterrupt:
         print("\n[AD] 종료 중...")
     finally:

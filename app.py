@@ -10,6 +10,7 @@ from transport.protocol_defs import *
 import transport.tcp_transport as tcp
 import transport.tcp_thread as tcp_thread_mod
 import automation.automation as ac
+import ad_runner as AdRunner_mod
 from ad_runner import AdRunner
 from step_ad_runner import StepAdRunner
 from lane_runner import LaneRunner
@@ -112,12 +113,14 @@ class AppState:
         if self.tcp_sock is None:
             log_panel.append("Not connected.", "WARN")
             return
-        try:
-            rid = self.rid.next()
-            pending_add(self.pending, self.lock, rid, msg_type)
-            send_fn(rid)
-        except OSError as e:
-            log_panel.append(f"Send error: {e}", "ERROR")
+        def _send():
+            try:
+                rid = self.rid.next()
+                pending_add(self.pending, self.lock, rid, msg_type)
+                send_fn(rid)
+            except OSError as e:
+                log_panel.append(f"Send error: {e}", "ERROR")
+        threading.Thread(target=_send, daemon=True).start()
 
     def toggle_auto(self, max_calls: int = MAX_CALL_NUM) -> bool:
         if self.auto_caller is None or not self.auto_caller.is_alive():
@@ -172,25 +175,43 @@ class AppState:
             self.fp_caller.stop()
             self.fp_caller = None
 
-    def start_ad(self, vehicles: list) -> None:
+    def start_ad(self, vehicles: list, collision_cfg: dict = None) -> None:
         if self.ad_runners:
             log_panel.append("[AD] 이미 실행 중입니다.", "WARN")
             return
+        AdRunner_mod.clear_shared_positions()
+        chaser_id = (collision_cfg or {}).get("chaser_entity_id")
+        target_id = (collision_cfg or {}).get("target_entity_id")
+        speed_kph = (collision_cfg or {}).get("speed_kph", 60.0)
         for v in vehicles:
+            is_chaser = (chaser_id == v["entity_id"])
+            is_target = bool(collision_cfg) and (v["entity_id"] == target_id)
             try:
                 runner = AdRunner(
-                    tcp_sock  = self.tcp_sock,
-                    entity_id = v["entity_id"],
-                    vi_ip     = "0.0.0.0",
-                    vi_port   = v["vi_port"],
-                    path_file = v["path"],
-                    log_fn    = lambda msg, level="INFO", eid=v["entity_id"]:
-                                    log_panel.append(f"[AD:{eid}] {msg}", level),
-                    status_cb = au_panel.update_status,
+                    tcp_sock              = self.tcp_sock,
+                    entity_id             = v["entity_id"],
+                    vi_ip                 = "0.0.0.0",
+                    vi_port               = v["vi_port"],
+                    path_file             = v.get("path", "path_link.csv"),
+                    map_name              = v.get("map_name"),
+                    log_fn                = lambda msg, level="INFO", eid=v["entity_id"]:
+                                               log_panel.append(f"[AD:{eid}] {msg}", level),
+                    status_cb             = au_panel.update_status,
+                    is_chaser             = is_chaser,
+                    is_collision_target   = is_target,
+                    target_entity_id      = target_id,
+                    speed_kph             = speed_kph,
+                    trigger_kph           = (collision_cfg or {}).get("trigger_kph", 5.0),
                 )
                 runner.start()
                 self.ad_runners.append(runner)
-                log_panel.append(f"[AD:{v['entity_id']}] 시작 (port={v['vi_port']})")
+                if is_chaser:
+                    role = f"Chaser ({speed_kph * 1.2:.0f} kph)"
+                elif is_target:
+                    role = f"Target ({speed_kph:.0f} kph)"
+                else:
+                    role = "PathFollow"
+                log_panel.append(f"[AD:{v['entity_id']}] 시작 (port={v['vi_port']}, {role})")
             except Exception as e:
                 log_panel.append(f"[AD:{v['entity_id']}] 시작 실패: {e}", "ERROR")
         if not self.ad_runners:
@@ -202,7 +223,8 @@ class AppState:
         self.ad_runners.clear()
         au_panel.reset_ui()
 
-    def start_step_ad(self, vehicles: list, save_data: bool = False) -> None:
+    def start_step_ad(self, vehicles: list, save_data: bool = False,
+                      collision_cfg: dict = None) -> None:
         if self.step_ad_runners:
             log_panel.append("[StepAD] 이미 실행 중입니다.", "WARN")
             return
@@ -223,6 +245,7 @@ class AppState:
                 log_fn         = lambda msg, level="INFO": log_panel.append(f"[StepAD] {msg}", level),
                 status_cb      = au_panel.update_status,
                 on_done        = _on_done,
+                collision_cfg  = collision_cfg,
             )
             runner.start()
             self.step_ad_runners.append(runner)
@@ -343,6 +366,11 @@ class AppState:
 
     def _on_disconnect(self):
         self.tcp_sock = None                                    # 즉시 null → dispatch null guard 히트
+        # 대기 중인 ev.wait() 즉시 해제 — StepAdRunner 등이 timeout까지 기다리지 않도록
+        with self.lock:
+            for item in self.pending.values():
+                item["ev"].set()
+            self.pending.clear()
         if self.auto_caller and self.auto_caller.is_alive():
             self.auto_caller.stop()
         if self.fp_caller and self.fp_caller.is_alive():
@@ -577,7 +605,7 @@ def build_ui(state: AppState):
                                    callback=lambda: _select_tab("udp"))
                     dpg.add_button(label=" Lane Control ", tag="tab_btn_lc",
                                    callback=lambda: _select_tab("lc"))
-                    dpg.add_button(label=" Autonomous ", tag="tab_btn_au",
+                    dpg.add_button(label=" Path Follow ", tag="tab_btn_au",
                                    callback=lambda: _select_tab("au"))
                     dpg.add_button(label=" File Playback ", tag="tab_btn_fp",
                                    callback=lambda: _select_tab("fp"))
@@ -698,9 +726,63 @@ def main():
 
     state.connect()
 
+    _frame_ts = [time.monotonic()]   # 리스트로 감싸 워치독 스레드와 공유
+
+    def _watchdog():
+        while True:
+            time.sleep(3)
+            age = time.monotonic() - _frame_ts[0]
+            if age > 2.0:
+                print(f"[WATCHDOG] 메인 루프 {age:.1f}s 미실행 — freeze 감지")
+
+    threading.Thread(target=_watchdog, daemon=True).start()
+
+    # ── 프레임 성능 통계 ──────────────────────────────────────
+    _FRAME_WARN_MS  = 150.0
+    _STAT_INTERVAL  = 5.0    # 통계 출력 주기(초)
+    _stat_t         = time.monotonic()
+    _stat_render_ms = 0.0
+    _stat_drain_n   = 0
+    _stat_frames    = 0
+
     while dpg.is_dearpygui_running():
-        ui_queue.drain()
+        _frame_ts[0] = time.monotonic()
+
+        # ── log flush: pending 라인 → set_value 최대 1회 ─────
+        log_panel.flush()
+
+        # ── ui_queue drain ───────────────────────────────────
+        t0 = time.perf_counter()
+        n_drained = ui_queue.drain()
+        t1 = time.perf_counter()
+        drain_ms = (t1 - t0) * 1000.0
+        if drain_ms > _FRAME_WARN_MS:
+            print(f"[PERF] drain() {drain_ms:.1f}ms  items={n_drained}")
+
+        # ── DPG render ───────────────────────────────────────
         dpg.render_dearpygui_frame()
+        t2 = time.perf_counter()
+        render_ms = (t2 - t1) * 1000.0
+        if render_ms > _FRAME_WARN_MS:
+            print(f"[PERF] render() {render_ms:.1f}ms  drain_items={n_drained}")
+
+        # ── 5초 평균 통계 ────────────────────────────────────
+        _stat_render_ms += render_ms
+        _stat_drain_n   += n_drained
+        _stat_frames    += 1
+        now = time.monotonic()
+        if now - _stat_t >= _STAT_INTERVAL:
+            f = max(_stat_frames, 1)
+            print(
+                f"[STAT] frames={_stat_frames}"
+                f"  fps={_stat_frames/_STAT_INTERVAL:.1f}"
+                f"  avg_render={_stat_render_ms/f:.1f}ms"
+                f"  avg_drain_items={_stat_drain_n/f:.1f}"
+            )
+            _stat_t         = now
+            _stat_render_ms = 0.0
+            _stat_drain_n   = 0
+            _stat_frames    = 0
 
     if state.auto_caller and state.auto_caller.is_alive():
         state.auto_caller.stop()

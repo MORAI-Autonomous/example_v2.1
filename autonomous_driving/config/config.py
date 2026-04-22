@@ -31,9 +31,10 @@ class Config(object):
         except FileNotFoundError:
             self["map"]["path"] = []
         
-    def load_path(self, file_name):
+    def load_path(self, file_name, map_name=None):
+        name = map_name or self["map"]["name"]
         path_df = pd.read_csv(
-            os.path.join(os.path.dirname(__file__), 'map', self["map"]["name"], file_name)
+            os.path.join(os.path.dirname(__file__), 'map', name, file_name)
         )
         return path_df.apply(
             lambda point: Point(point["x"], point["y"]), axis=1

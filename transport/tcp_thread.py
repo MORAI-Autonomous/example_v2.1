@@ -151,9 +151,9 @@ class Receiver(threading.Thread):
                             "WARN"
                         )
 
-            # pending event set
+            # pending event set + cleanup
             if msg_class == proto.MSG_CLASS_RESP:
                 with self.lock:
-                    item = self.pending.get((request_id, msg_type))
+                    item = self.pending.pop((request_id, msg_type), None)
                     if item:
                         item["ev"].set()
