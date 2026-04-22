@@ -174,7 +174,7 @@ class StepAdRunner:
             x        = parsed["location"]["x"],
             y        = parsed["location"]["y"],
             yaw      = np.deg2rad(parsed["rotation"]["z"]),
-            velocity = parsed["local_velocity"]["x"] / 3.6,
+            velocity = parsed["local_velocity"]["x"],
         )
         try:
             ctrl, _ = ctx.ad.execute(vs)
@@ -236,48 +236,70 @@ class StepAdRunner:
     def _control_loop(self) -> None:
         self._log("주행 시작")
 
-        # 타이밍 누적 (ms)
-        _t_cmd   = []   # ① 제어 커맨드 전송 소요
-        _t_step  = []   # ② FixedStep 송신 → ACK 수신 (네트워크 RTT + 서버 처리)
-        _t_save  = []   # ③ SaveData 송신 소요
-        _t_vi    = []   # ④ VI 도착 대기 소요
+        _t_ack   = []   # FixedStep ACK 대기 (이전 루프에서 선제 전송된 스텝)
+        _t_vi    = []   # VI 도착 대기
+        _t_cmd   = []   # 제어 커맨드 전송 소요
         _t_total = []   # 전체 루프 소요
 
+        def _send_all_cmds() -> None:
+            for ctx in self._ctxs:
+                with ctx.lock:
+                    parsed = ctx.latest
+                if parsed is None:
+                    continue
+                if ctx.is_chaser:
+                    self._send_chaser(ctx, parsed)
+                else:
+                    self._send_path_follow(ctx, parsed)
+
+        def _presend_step():
+            """다음 FixedStep을 선제 전송하고 (ev, rid) 반환."""
+            r = self._rid.next()
+            e = self._pending_add(self._pending, self._lock, r,
+                                  proto.MSG_TYPE_FIXED_STEP)
+            tcp.send_fixed_step(self._tcp_sock, r, step_count=1)
+            return e, r
+
         try:
+            # ── 프라이밍: 초기 커맨드 없이 첫 스텝 전송 → save → 초기 VI 수신 ──
+            for ctx in self._ctxs:
+                ctx.vi_event.clear()
+
+            ev, rid = _presend_step()
+            if not ev.wait(self._timeout_sec):
+                self._pending_pop(self._pending, self._lock, rid,
+                                  proto.MSG_TYPE_FIXED_STEP)
+                self._log("초기 FixedStep ACK timeout — 중단", "ERROR")
+                return
+            self._pending_pop(self._pending, self._lock, rid,
+                               proto.MSG_TYPE_FIXED_STEP)
+            tcp.send_save_data(self._tcp_sock, _next_rid())
+            for ctx in self._ctxs:
+                if not ctx.vi_event.wait(self._timeout_sec):
+                    self._log(f"[{ctx.entity_id}] 초기 VI timeout — 중단", "ERROR")
+                    return
+
+            # 초기 커맨드 전송 후 첫 파이프라인 스텝 선제 전송
+            _send_all_cmds()
+            for ctx in self._ctxs:
+                ctx.vi_event.clear()
+            ev, rid = _presend_step()
+
+            # ── 메인 파이프라인 루프 ──────────────────────────────
+            #
+            # 루프 진입 시 ev/rid 는 이미 전송된 FixedStep_N 을 가리킴.
+            #
+            # 순서:
+            #   ① ACK_N 대기          (이전 루프 끝 또는 프라이밍에서 선제 전송)
+            #   ② SaveData_N 전송
+            #   ③ FixedStep_N+1 선제 전송  ← VI 대기 동안 RTT 오버랩
+            #   ④ VI_N 대기
+            #   ⑤ cmd_N+1 전송        (다음 스텝 이후에 서버에 도착 → 1-step control lag)
+            #
             while self._running:
                 t0 = time.perf_counter()
 
-                # ① 모든 차량 제어 명령 전송
-                for ctx in self._ctxs:
-                    with ctx.lock:
-                        parsed = ctx.latest
-
-                    if parsed is None:
-                        self._log(f"[{ctx.entity_id}] 차량 상태 대기 중...", "INFO")
-                        continue
-
-                    if ctx.is_chaser:
-                        self._send_chaser(ctx, parsed)
-                    else:
-                        self._send_path_follow(ctx, parsed)
-
-                t1 = time.perf_counter()
-
-                # ② FixedStep 전송 → ACK 대기
-                for ctx in self._ctxs:
-                    ctx.vi_event.clear()
-
-                rid = self._rid.next()
-                ev  = self._pending_add(self._pending, self._lock, rid,
-                                        proto.MSG_TYPE_FIXED_STEP)
-                try:
-                    tcp.send_fixed_step(self._tcp_sock, rid, step_count=1)
-                except OSError as e:
-                    self._log(f"FixedStep 전송 오류: {e}", "ERROR")
-                    break
-
-                t2 = time.perf_counter()
-
+                # ① ACK 대기
                 if not ev.wait(self._timeout_sec):
                     self._pending_pop(self._pending, self._lock, rid,
                                       proto.MSG_TYPE_FIXED_STEP)
@@ -287,20 +309,28 @@ class StepAdRunner:
                         "ERROR"
                     )
                     break
-
-                t3 = time.perf_counter()
-
                 self._pending_pop(self._pending, self._lock, rid,
-                                  proto.MSG_TYPE_FIXED_STEP)
+                                   proto.MSG_TYPE_FIXED_STEP)
 
-                # ③ SaveData 전송 (fire-and-forget)
+                t1 = time.perf_counter()
+
+                # ② SaveData 전송
                 try:
                     tcp.send_save_data(self._tcp_sock, _next_rid())
                 except OSError as e:
                     self._log(f"SaveData 전송 오류: {e}", "ERROR")
                     break
 
-                t4 = time.perf_counter()
+                # ③ 다음 FixedStep 선제 전송 (VI 대기 동안 RTT 진행)
+                for ctx in self._ctxs:
+                    ctx.vi_event.clear()
+                try:
+                    ev, rid = _presend_step()
+                except OSError as e:
+                    self._log(f"FixedStep 전송 오류: {e}", "ERROR")
+                    break
+
+                t2 = time.perf_counter()
 
                 # ④ VI 도착 대기
                 for ctx in self._ctxs:
@@ -310,35 +340,35 @@ class StepAdRunner:
                             "WARN"
                         )
 
-                t5 = time.perf_counter()
+                t3 = time.perf_counter()
 
-                _t_cmd.append((t1 - t0) * 1000)
-                _t_step.append((t3 - t2) * 1000)
-                _t_save.append((t4 - t3) * 1000)
-                _t_vi.append((t5 - t4) * 1000)
-                _t_total.append((t5 - t0) * 1000)
+                # ⑤ 제어 커맨드 전송
+                _send_all_cmds()
+
+                t4 = time.perf_counter()
+
+                _t_ack.append((t1 - t0) * 1000)
+                _t_vi.append((t3 - t2) * 1000)
+                _t_cmd.append((t4 - t3) * 1000)
+                _t_total.append((t4 - t0) * 1000)
 
                 if len(_t_total) >= self._TIMING_INTERVAL:
-                    def _stats(samples):
-                        return (
-                            sum(samples) / len(samples),
-                            min(samples),
-                            max(samples),
-                        )
-                    ca, cn, cx   = _stats(_t_cmd)
-                    sa, sn, sx   = _stats(_t_step)
-                    va, vn, vx   = _stats(_t_vi)
-                    ta, tn, tx   = _stats(_t_total)
+                    def _stats(s):
+                        return sum(s) / len(s), min(s), max(s)
+                    aa, an, ax = _stats(_t_ack)
+                    va, vn, vx = _stats(_t_vi)
+                    ca, cn, cx = _stats(_t_cmd)
+                    ta, tn, tx = _stats(_t_total)
                     self._log(
                         f"[Timing/{self._TIMING_INTERVAL}스텝] "
                         f"total={ta:.1f}ms({tn:.1f}~{tx:.1f})  "
-                        f"cmd={ca:.1f}({cn:.1f}~{cx:.1f})  "
-                        f"step_ack={sa:.1f}({sn:.1f}~{sx:.1f})  "
-                        f"vi_wait={va:.1f}({vn:.1f}~{vx:.1f})",
+                        f"ack_wait={aa:.1f}({an:.1f}~{ax:.1f})  "
+                        f"vi_wait={va:.1f}({vn:.1f}~{vx:.1f})  "
+                        f"cmd={ca:.1f}({cn:.1f}~{cx:.1f})",
                         "INFO"
                     )
-                    _t_cmd.clear(); _t_step.clear()
-                    _t_save.clear(); _t_vi.clear(); _t_total.clear()
+                    _t_ack.clear(); _t_vi.clear()
+                    _t_cmd.clear(); _t_total.clear()
 
         finally:
             self._running = False

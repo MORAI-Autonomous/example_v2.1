@@ -173,7 +173,7 @@ class AdRunner:
             x        = parsed["location"]["x"],
             y        = parsed["location"]["y"],
             yaw      = np.deg2rad(parsed["rotation"]["z"]),
-            velocity = parsed["local_velocity"]["x"] / 3.6,
+            velocity = parsed["local_velocity"]["x"],
         )
         try:
             ctrl, _ = self._ad.execute(vs)

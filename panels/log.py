@@ -19,6 +19,7 @@ import dearpygui.dearpygui as dpg
 _MAX_LINES     = 500
 _DISPLAY_LINES = 30
 
+_TAG_CHILD  = "log_child_window"
 _TAG_TEXT   = "log_text"
 _TAG_SEARCH = "log_search"
 _TAG_FOUND  = "log_found"
@@ -51,15 +52,16 @@ def build(parent) -> None:
                            callback=lambda: _on_search(dpg.get_value(_TAG_SEARCH)))
             dpg.add_text("", tag=_TAG_FOUND, color=(180, 180, 100, 255))
 
-        dpg.add_input_text(
-            tag=_TAG_TEXT,
-            default_value="",
-            multiline=True,
-            readonly=True,
-            width=-1,
-            height=-1,
-            tab_input=False,
-        )
+        with dpg.child_window(tag=_TAG_CHILD, width=-1, height=-1, border=False):
+            dpg.add_input_text(
+                tag=_TAG_TEXT,
+                default_value="",
+                multiline=True,
+                readonly=True,
+                width=-1,
+                height=-1,
+                tab_input=False,
+            )
 
 
 # ── 외부 API ──────────────────────────────────────────────────
@@ -102,16 +104,16 @@ def flush() -> None:
 # ── 내부 ──────────────────────────────────────────────────────
 
 def _is_at_bottom() -> bool:
-    if not dpg.does_item_exist(_TAG_TEXT):
+    if not dpg.does_item_exist(_TAG_CHILD):
         return True
-    s_y   = dpg.get_y_scroll(_TAG_TEXT)
-    s_max = dpg.get_y_scroll_max(_TAG_TEXT)
+    s_y   = dpg.get_y_scroll(_TAG_CHILD)
+    s_max = dpg.get_y_scroll_max(_TAG_CHILD)
     return s_max <= 0 or (s_max - s_y) < _BOTTOM_THRESHOLD
 
 
 def _scroll_to_end() -> None:
-    if dpg.does_item_exist(_TAG_TEXT):
-        dpg.set_y_scroll(_TAG_TEXT, -1.0)
+    if dpg.does_item_exist(_TAG_CHILD):
+        dpg.set_y_scroll(_TAG_CHILD, -1.0)
 
 
 def _go_to_end() -> None:
