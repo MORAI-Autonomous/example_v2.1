@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 # vehicle_info_receiver.py
 import socket
 import struct

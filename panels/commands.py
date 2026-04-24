@@ -193,6 +193,8 @@ def build(parent: int | str) -> None:
             with dpg.group(horizontal=True):
                 dpg.add_text("steer", color=(160, 160, 160, 255))
                 dpg.add_input_float(tag="tc_steer", default_value=0.0, step=0, width=80)
+                dpg.add_text("speed", color=(160, 160, 160, 255))
+                dpg.add_input_float(tag="tc_speed", default_value=0.0, step=0, width=80)
             dpg.add_spacer(height=2)
             dpg.add_button(label="Send",
                 callback=lambda: _dispatch(
@@ -203,7 +205,8 @@ def build(parent: int | str) -> None:
                         pos_x=dpg.get_value("tc_px"), pos_y=dpg.get_value("tc_py"),
                         pos_z=dpg.get_value("tc_pz"), rot_x=dpg.get_value("tc_rx"),
                         rot_y=dpg.get_value("tc_ry"), rot_z=dpg.get_value("tc_rz"),
-                        steer_angle=dpg.get_value("tc_steer"))))
+                        steer_angle=dpg.get_value("tc_steer"),
+                        speed=dpg.get_value("tc_speed"))))
 
         # ── Fixed Step ─────────────────────────────────────
         _section("FIXED STEP")

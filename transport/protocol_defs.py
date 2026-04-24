@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import struct
 
 # ============================================================
@@ -127,20 +129,20 @@ MANUAL_CONTROL_BY_ID_MIN_SIZE = (
 )  # 28
 
 # --- Transform Control (legacy, no ID) ---
-TRANSFORM_CONTROL_FMT  = "<fffffff"         # pos(x,y,z), rot(x,y,z), steer_angle
-TRANSFORM_CONTROL_SIZE = struct.calcsize(TRANSFORM_CONTROL_FMT)  # 28
+TRANSFORM_CONTROL_FMT  = "<fffffffd"        # pos(x,y,z), rot(x,y,z), steer_angle, speed
+TRANSFORM_CONTROL_SIZE = struct.calcsize(TRANSFORM_CONTROL_FMT)  # 36
 
 # --- Transform Control By ID ---
 TRANSFORM_CONTROL_BY_ID_PREFIX_FMT  = LITTLE_ENDIAN + "I"
 TRANSFORM_CONTROL_BY_ID_PREFIX_SIZE = struct.calcsize(TRANSFORM_CONTROL_BY_ID_PREFIX_FMT)  # 4
 
-TRANSFORM_CONTROL_BY_ID_VALUES_FMT  = LITTLE_ENDIAN + "fffffff"
-TRANSFORM_CONTROL_BY_ID_VALUES_SIZE = struct.calcsize(TRANSFORM_CONTROL_BY_ID_VALUES_FMT)  # 28
+TRANSFORM_CONTROL_BY_ID_VALUES_FMT  = LITTLE_ENDIAN + "fffffffd"
+TRANSFORM_CONTROL_BY_ID_VALUES_SIZE = struct.calcsize(TRANSFORM_CONTROL_BY_ID_VALUES_FMT)  # 36
 
 TRANSFORM_CONTROL_BY_ID_MIN_SIZE = (
     TRANSFORM_CONTROL_BY_ID_PREFIX_SIZE +
     TRANSFORM_CONTROL_BY_ID_VALUES_SIZE
-)  # 32
+)  # 40
 
 # --- Set Trajectory ---
 #

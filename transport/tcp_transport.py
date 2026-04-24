@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 # tcp_transport.py
 import socket
 import struct
@@ -123,6 +125,7 @@ def build_transform_control_by_id_payload(
     pos_x: float, pos_y: float, pos_z: float,
     rot_x: float, rot_y: float, rot_z: float,
     steer_angle: float,
+    speed: float,
 ) -> bytes:
     return (
         _pack_str(entity_id)
@@ -131,6 +134,7 @@ def build_transform_control_by_id_payload(
             pos_x, pos_y, pos_z,
             rot_x, rot_y, rot_z,
             steer_angle,
+            speed,
         )
     )
 
@@ -222,9 +226,10 @@ def send_transform_control_by_id(
     pos_x: float, pos_y: float, pos_z: float,
     rot_x: float, rot_y: float, rot_z: float,
     steer_angle: float,
+    speed: float,
 ):
     payload = build_transform_control_by_id_payload(
-        entity_id, pos_x, pos_y, pos_z, rot_x, rot_y, rot_z, steer_angle,
+        entity_id, pos_x, pos_y, pos_z, rot_x, rot_y, rot_z, steer_angle, speed,
     )
     _send_packet(sock, request_id, proto.MSG_TYPE_TRANSFORM_CONTROL_BY_ID_COMMAND, payload)
 

@@ -23,6 +23,7 @@ import panels.commands           as cmd_panel
 import panels.lane_control_panel  as lc_panel
 import panels.autonomous_panel    as au_panel
 import panels.file_playback_panel as fp_panel
+import panels.transform_playback_panel as tfp_panel
 
 _logo_tag = None   # 로고 텍스처 태그 (main()에서 로드 후 설정)
 
@@ -105,6 +106,7 @@ class AppState:
         self.receiver    = None
         self.auto_caller = None
         self.fp_caller   = None
+        self.tfp_caller  = None
         self.ad_runners:      list = []
         self.step_ad_runners: list = []
         self.lc_runner   = None
@@ -176,6 +178,37 @@ class AppState:
         if self.fp_caller and self.fp_caller.is_alive():
             self.fp_caller.stop()
             self.fp_caller = None
+
+    def start_tfp(self, vehicles: list) -> None:
+        if self.tfp_caller is not None and self.tfp_caller.is_alive():
+            log_panel.append("[TFP] 이미 재생 중입니다.", "WARN")
+            return
+        total_rows = max((len(v["rows"]) for v in vehicles), default=0)
+        if total_rows <= 0:
+            log_panel.append("[TFP] 재생할 행이 없습니다.", "WARN")
+            return
+        self.tfp_caller = ac.AutoCaller(
+            tcp_sock=self.tcp_sock,
+            pending=self.pending,
+            lock=self.lock,
+            request_id_ref=self.rid,
+            max_calls=total_rows,
+            pending_add_fn=pending_add,
+            pending_pop_fn=pending_pop,
+            step_count=1,
+            timeout_sec=AUTO_TIMEOUT_SEC,
+            delay_sec=AUTO_DELAY_BETWEEN_CMDS_SEC,
+            progress_every=1,
+        )
+        def _on_done(s=self):
+            s.tfp_caller = None
+        _patch_tfp_caller(self.tfp_caller, vehicles, on_done=_on_done)
+        self.tfp_caller.start()
+
+    def stop_tfp(self) -> None:
+        if self.tfp_caller and self.tfp_caller.is_alive():
+            self.tfp_caller.stop()
+            self.tfp_caller = None
 
     def start_ad(self, vehicles: list, collision_cfg: dict = None) -> None:
         if self.ad_runners:
@@ -347,6 +380,10 @@ class AppState:
                         start_fp_fn=self.start_fp,
                         stop_fp_fn=self.stop_fp,
                     )
+                    tfp_panel.init(
+                        start_tfp_fn=self.start_tfp,
+                        stop_tfp_fn=self.stop_tfp,
+                    )
                     au_panel.init(
                         start_ad_fn=self.start_ad,
                         stop_ad_fn=self.stop_ad,
@@ -377,6 +414,8 @@ class AppState:
             self.auto_caller.stop()
         if self.fp_caller and self.fp_caller.is_alive():
             self.fp_caller.stop()
+        if self.tfp_caller and self.tfp_caller.is_alive():
+            self.tfp_caller.stop()
         for runner in list(self.step_ad_runners):
             runner.stop()
         self.step_ad_runners.clear()
@@ -500,6 +539,69 @@ def _patch_fp_caller(caller: ac.AutoCaller, rows: list, entity_id: str, on_done=
 
 
 # ============================================================
+# TransformPlayback patch
+# ============================================================
+def _patch_tfp_caller(caller: ac.AutoCaller, vehicles: list, on_done=None):
+    """
+    AutoCaller.run 을 TransformControlById CSV 재생 루프로 교체한다.
+    각 step 마다:
+      1. 모든 차량 TransformControlById 전송 (fire-and-forget)
+      2. CSV 시간 간격만큼 대기
+    """
+    def patched_run():
+        total = max((len(v["rows"]) for v in vehicles), default=0)
+        ids = ", ".join(v["entity_id"] for v in vehicles)
+        log_panel.append(f"[TFP] 시작: {total}행, vehicles={ids}", "INFO")
+
+        def _row_time(i: int):
+            for vehicle in vehicles:
+                if i < len(vehicle["rows"]):
+                    return vehicle["rows"][i].get("time_sec")
+            return None
+
+        for i in range(total):
+            if caller._stop.is_set():
+                break
+
+            for vehicle in vehicles:
+                if i >= len(vehicle["rows"]):
+                    continue
+                row = vehicle["rows"][i]
+                rid = caller._next_rid()
+                tcp.send_transform_control_by_id(
+                    caller.tcp_sock, rid,
+                    entity_id=vehicle["entity_id"],
+                    pos_x=row["pos_x"], pos_y=row["pos_y"], pos_z=row["pos_z"],
+                    rot_x=row["rot_x"], rot_y=row["rot_y"], rot_z=row["rot_z"],
+                    steer_angle=row["steer_angle"],
+                    speed=row["speed"],
+                )
+
+            if caller._stop.is_set():
+                break
+
+            tfp_panel.update_progress(i + 1, total)
+
+            if i + 1 < total:
+                t_cur = _row_time(i)
+                t_next = _row_time(i + 1)
+                if t_cur is not None and t_next is not None:
+                    sleep_sec = max(0.0, min(t_next - t_cur, 0.2))
+                else:
+                    sleep_sec = max(caller.delay_sec, 0.02)
+                if sleep_sec > 0 and caller._stop.wait(timeout=sleep_sec):
+                    break
+
+        stopped = caller._stop.is_set()
+        tfp_panel.reset_ui(stopped=stopped)
+        log_panel.append(f"[TFP] {'중단됨' if stopped else '재생 완료'} ({total}행)", "INFO")
+        if on_done:
+            on_done()
+
+    caller.run = patched_run
+
+
+# ============================================================
 # UI build
 # ============================================================
 def build_ui(state: AppState):
@@ -545,8 +647,10 @@ def build_ui(state: AppState):
         dpg.configure_item("lc_scroll",  show=(name == "lc"))
         dpg.configure_item("au_scroll",  show=(name == "au"))
         dpg.configure_item("fp_scroll",  show=(name == "fp"))
+        dpg.configure_item("tfp_scroll", show=(name == "tfp"))
         for tag, key in [("tab_btn_udp", "udp"), ("tab_btn_lc", "lc"),
-                         ("tab_btn_au", "au"), ("tab_btn_fp", "fp")]:
+                         ("tab_btn_au", "au"), ("tab_btn_fp", "fp"),
+                         ("tab_btn_tfp", "tfp")]:
             dpg.bind_item_theme(tag, "theme_tab_active" if name == key else "theme_tab_inactive")
 
     with dpg.window(tag="main_window", no_title_bar=True,
@@ -611,6 +715,8 @@ def build_ui(state: AppState):
                                    callback=lambda: _select_tab("au"))
                     dpg.add_button(label=" File Playback ", tag="tab_btn_fp",
                                    callback=lambda: _select_tab("fp"))
+                    dpg.add_button(label=" Transform Playback ", tag="tab_btn_tfp",
+                                   callback=lambda: _select_tab("tfp"))
                 dpg.add_separator()
 
                 # ── 탭 콘텐츠 (한 번에 하나만 표시) ───────────
@@ -634,11 +740,17 @@ def build_ui(state: AppState):
                                       border=False, show=False):
                     fp_panel.build(parent="fp_scroll")
 
+                with dpg.child_window(tag="tfp_scroll",
+                                      width=-1, height=-1,
+                                      border=False, show=False):
+                    tfp_panel.build(parent="tfp_scroll")
+
                 # 초기 버튼 테마 적용
                 dpg.bind_item_theme("tab_btn_udp", "theme_tab_active")
                 dpg.bind_item_theme("tab_btn_lc",  "theme_tab_inactive")
                 dpg.bind_item_theme("tab_btn_au",  "theme_tab_inactive")
                 dpg.bind_item_theme("tab_btn_fp",  "theme_tab_inactive")
+                dpg.bind_item_theme("tab_btn_tfp", "theme_tab_inactive")
 
         # ── 하단: 로그 ────────────────────────────────────
         # no_scrollbar=True: log_child 가 자체 스크롤 담당
@@ -862,6 +974,8 @@ def main():
         state.auto_caller.stop()
     if state.fp_caller and state.fp_caller.is_alive():
         state.fp_caller.stop()
+    if state.tfp_caller and state.tfp_caller.is_alive():
+        state.tfp_caller.stop()
     for _runner in state.ad_runners:
         _runner.stop()
     for _runner in state.step_ad_runners:
