@@ -145,3 +145,25 @@ def _rebuild(count: int) -> None:
 - `tooltip` 파라미터: 라벨 텍스트에 마우스오버 툴팁 추가
 - `show` 파라미터: 조건부 표시 (속도 제어 활성 시에만 보이는 슬라이더 등)
 - 테이블 2열 배치로 세로 공간 절약 (`mvTable_SizingStretchSame`)
+---
+
+## Viewport Resize Rule
+
+viewport resize callback?먯꽌 `dpg.configure_item()`?쇰줈 layout??吏곸젒 諛붽씀吏 ?딄퀬, dirty flag留?set?섏뿬 硫붿씤 猷⑦봽?먯꽌留?layout??諛섏쁺?쒕떎.
+
+```python
+_layout_dirty = True
+
+def _mark_layout_dirty():
+    global _layout_dirty
+    _layout_dirty = True
+
+dpg.set_viewport_resize_callback(_mark_layout_dirty)
+
+while dpg.is_dearpygui_running():
+    if _layout_dirty:
+        _apply_layout()
+    dpg.render_dearpygui_frame()
+```
+
+?대쾭? 李?move / resize ?꾨줈?꾩뒪?먯꽌 callback?댁슜?섍꼬 layout / hit-test / scroll ?곗뿭?대? 瑗ъ씠??寃쎌슦瑜?以꾩씠湲??꾪븳 洹쒖튃?대떎. `app.py`?먯꽌 viewport callback? dirty flag留??섏젙?섍퀬, layout ?곸슜? 硫붿씤 猷⑦봽?먯꽌留??섑뻾?쒕떎.

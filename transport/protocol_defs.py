@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import struct
 
+from transport.message_schema import build_struct_format, fixed_fields, get_message
+
 # ============================================================
 # Network Config
 # ============================================================
@@ -91,6 +93,11 @@ RESULT_CODE_MAP = {
 # Packet Formats & Sizes
 # ============================================================
 
+_MSG_1102 = get_message(0x1102)
+_MSG_1302 = get_message(0x1302)
+_MSG_1303 = get_message(0x1303)
+_MSG_1304 = get_message(0x1304)
+
 # --- Header ---
 HEADER_FMT  = "<BBIIIH"
 HEADER_SIZE = struct.calcsize(HEADER_FMT)   # 16
@@ -106,21 +113,21 @@ STATUS_SIZE = struct.calcsize(STATUS_FMT)   # 32
 GET_STATUS_PAYLOAD_SIZE = RESULT_SIZE + STATUS_SIZE  # 40
 
 # --- Set Simulation Time Mode ---
-SET_SIM_TIME_MODE_REQ_FMT   = LITTLE_ENDIAN + "Iff"
+SET_SIM_TIME_MODE_REQ_FMT   = build_struct_format(fixed_fields(_MSG_1102.fields), LITTLE_ENDIAN)
 SET_SIM_TIME_MODE_REQ_SIZE  = struct.calcsize(SET_SIM_TIME_MODE_REQ_FMT)   # 12
 
 SET_SIM_TIME_MODE_RESP_FMT  = LITTLE_ENDIAN + "IIIff"
 SET_SIM_TIME_MODE_RESP_SIZE = struct.calcsize(SET_SIM_TIME_MODE_RESP_FMT)  # 20
 
 # --- Manual Command (UDP, legacy) ---
-MANUAL_FMT  = "<ddd"                        # throttle, brake, steer (float64 x3)
+MANUAL_FMT  = build_struct_format(fixed_fields(_MSG_1302.fields[1:]), LITTLE_ENDIAN)  # throttle, brake, steer
 MANUAL_SIZE = struct.calcsize(MANUAL_FMT)   # 24
 
 # --- Manual Control By ID ---
 MANUAL_CONTROL_BY_ID_PREFIX_FMT  = LITTLE_ENDIAN + "I"
 MANUAL_CONTROL_BY_ID_PREFIX_SIZE = struct.calcsize(MANUAL_CONTROL_BY_ID_PREFIX_FMT)  # 4
 
-MANUAL_CONTROL_BY_ID_VALUES_FMT  = LITTLE_ENDIAN + "ddd"
+MANUAL_CONTROL_BY_ID_VALUES_FMT  = build_struct_format(fixed_fields(_MSG_1302.fields[1:]), LITTLE_ENDIAN)
 MANUAL_CONTROL_BY_ID_VALUES_SIZE = struct.calcsize(MANUAL_CONTROL_BY_ID_VALUES_FMT)  # 24
 
 MANUAL_CONTROL_BY_ID_MIN_SIZE = (
@@ -129,14 +136,14 @@ MANUAL_CONTROL_BY_ID_MIN_SIZE = (
 )  # 28
 
 # --- Transform Control (legacy, no ID) ---
-TRANSFORM_CONTROL_FMT  = "<fffffffd"        # pos(x,y,z), rot(x,y,z), steer_angle, speed
+TRANSFORM_CONTROL_FMT  = build_struct_format(fixed_fields(_MSG_1303.fields[1:]), LITTLE_ENDIAN)
 TRANSFORM_CONTROL_SIZE = struct.calcsize(TRANSFORM_CONTROL_FMT)  # 36
 
 # --- Transform Control By ID ---
 TRANSFORM_CONTROL_BY_ID_PREFIX_FMT  = LITTLE_ENDIAN + "I"
 TRANSFORM_CONTROL_BY_ID_PREFIX_SIZE = struct.calcsize(TRANSFORM_CONTROL_BY_ID_PREFIX_FMT)  # 4
 
-TRANSFORM_CONTROL_BY_ID_VALUES_FMT  = LITTLE_ENDIAN + "fffffffd"
+TRANSFORM_CONTROL_BY_ID_VALUES_FMT  = build_struct_format(fixed_fields(_MSG_1303.fields[1:]), LITTLE_ENDIAN)
 TRANSFORM_CONTROL_BY_ID_VALUES_SIZE = struct.calcsize(TRANSFORM_CONTROL_BY_ID_VALUES_FMT)  # 36
 
 TRANSFORM_CONTROL_BY_ID_MIN_SIZE = (
@@ -158,16 +165,16 @@ TRANSFORM_CONTROL_BY_ID_MIN_SIZE = (
 SET_TRAJECTORY_PREFIX_FMT     = LITTLE_ENDIAN + "I"
 SET_TRAJECTORY_PREFIX_SIZE    = struct.calcsize(SET_TRAJECTORY_PREFIX_FMT)      # 4
 
-SET_TRAJECTORY_FOLLOW_MODE_FMT  = LITTLE_ENDIAN + "i"
+SET_TRAJECTORY_FOLLOW_MODE_FMT  = build_struct_format((_MSG_1304.fields[1],), LITTLE_ENDIAN)
 SET_TRAJECTORY_FOLLOW_MODE_SIZE = struct.calcsize(SET_TRAJECTORY_FOLLOW_MODE_FMT)  # 4
 
 SET_TRAJECTORY_NAME_SIZE_FMT  = LITTLE_ENDIAN + "I"
 SET_TRAJECTORY_NAME_SIZE_SIZE = struct.calcsize(SET_TRAJECTORY_NAME_SIZE_FMT)   # 4
 
-SET_TRAJECTORY_POINT_COUNT_FMT  = LITTLE_ENDIAN + "I"
+SET_TRAJECTORY_POINT_COUNT_FMT  = build_struct_format((_MSG_1304.fields[3],), LITTLE_ENDIAN)
 SET_TRAJECTORY_POINT_COUNT_SIZE = struct.calcsize(SET_TRAJECTORY_POINT_COUNT_FMT)  # 4
 
-SET_TRAJECTORY_POINT_FMT  = LITTLE_ENDIAN + "dddd"
+SET_TRAJECTORY_POINT_FMT  = build_struct_format(_MSG_1304.repeat_fields, LITTLE_ENDIAN)
 SET_TRAJECTORY_POINT_SIZE = struct.calcsize(SET_TRAJECTORY_POINT_FMT)           # 32
 
 SET_TRAJECTORY_MIN_SIZE = (

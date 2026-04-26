@@ -96,3 +96,20 @@ RTF(Real-Time Factor) = sim_time / wall_clock_time. 1.0 = 실시간 동기화.
 | 1,000줄 이상 | 클래스/책임 단위로 파일 분리 검토 |
 
 현재 대형 파일: `app.py`, `panels/monitor.py`, `panels/lane_control_panel.py`
+---
+
+## TCP API Workflow
+
+TCP API 紐낅꽭??`transport/message_schema.py`瑜??쏅씪?대컮 ?쇱썝(origin)?쇰줈 愿由ы븳??payload ?꾨뱶媛 諛붾뀌硫??꾩쓬 ?쒖꽌瑜??좊Ⅴ?덈떎.
+
+1. `transport/message_schema.py` ?섏젙
+2. `python tools/gen_tcp_docs.py`
+3. `python tools/gen_tcp_docs.py --check`
+4. `docs/tcp-api.md` diff 由щ럭
+
+`docs/tcp-api.md`? generated file濡?媛꾩＜?섎?濡?吏곸젒 ?몄쭛?섏? ?딄퀬, ?꾪빆??schema ?섏젙 ???ъ깮?섏뼱?쇳븳??
+## TCP API Checks
+
+- `transport/message_schema.py`를 수정한 뒤 `python tools/gen_tcp_docs.py`로 [docs/tcp-api.md](/C:/Dev/MORAI-SimControl_v2.1/docs/tcp-api.md:1)를 재생성한다.
+- 커밋 전 `python tools/gen_tcp_docs.py --check`를 실행해 schema, generated doc, protocol 정의가 서로 맞는지 확인한다.
+- request payload 필드나 타입이 바뀌면 `python -m unittest tests.test_tcp_payloads`를 실행해 대표 패킷의 바이너리 결과가 유지되는지 확인한다.

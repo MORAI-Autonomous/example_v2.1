@@ -186,3 +186,44 @@ for attempt in range(2):
 ```
 
 경로 setter 에서 `_last_lfd_idx = 0` 으로 리셋한다.
+---
+
+## Transform Playback Notes
+
+`Transform Playback` panel??CSV 湲곕컲 `TransformControlById` ?ъ깮 ?꾩슜 panel?대떎.
+
+- panel init pattern: `panels.transform_playback_panel.init(start_tfp_fn, stop_tfp_fn)`
+- state file: `config/tfp_state.json`
+- default vehicle count: `2`
+- per-vehicle settings: `path`, `entity_id`
+
+### CSV parse
+
+`panels/transform_playback_panel.py::_load_csv()`? ?꾩쓬 媛믪쓣 row dict濡??뚯떛?쒕떎.
+
+- `time_sec`
+- `pos_x`, `pos_y`, `pos_z`
+- `rot_x`, `rot_y`, `rot_z`
+- `steer_angle`
+- `speed`
+
+`speed`? `local_velocity.x`, `local_velocity.y`瑜??ъ슜??`sqrt(x^2 + y^2)` 濡?怨꾩궛?쒕떎. `Vehicle Info` CSV??velocity??`m/s`濡???ν븯誘濡?`speed`??`m/s`濡??꾨쭏?섎룄濡??묎렐?쒕떎.
+
+### Runtime flow
+
+`AppState.start_tfp()`?먯꽌 `AutoCaller`瑜??ъ슜?섎굹, `Transform Playback`? `FixedStep` / `SaveData` 瑜??ъ슜?섏? ?딅뒗??`TransformControlById`瑜??쒖감 ?꾩넚?쒕떎.
+
+```python
+for i in range(total_rows):
+    for vehicle in vehicles:
+        row = vehicle["rows"][i]
+        tcp.send_transform_control_by_id(..., speed=row["speed"])
+
+    sleep(next_time_sec - current_time_sec)
+```
+
+CSV ?쒓컙 而щ읆?대? ?덉쑝硫?timestamp 媛꾧꺽?쇰줈 ?ъ깮?섍퀬, ?놁쑝硫?fallback delay瑜??ъ슜?쒕떎.
+
+### Transport coupling
+
+`TransformControlById` payload??`position`, `rotation`, `steer_angle`, `speed`瑜??ы븿?쒕떎. protocol?대? 諛붾뀌硫?`transport/protocol_defs.py`, `transport/tcp_transport.py`, `templates/TransformControl.tmpl`, panel CSV parser瑜?媛숈씠 ?묎렐?섏뼱?쇳븳??
