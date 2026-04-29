@@ -101,6 +101,7 @@ class AdRunner:
         target_entity_id:     str   = None,
         speed_kph:            float = 60.0,   # target 정속 / chaser = ×1.2
         trigger_kph:          float = 5.0,
+        max_speed_kph:        float = None,
     ):
         # UDP 수신 소켓
         self._recv_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -115,8 +116,9 @@ class AdRunner:
         self._target_entity_id      = target_entity_id
         self._target_speed_kph      = speed_kph if not is_chaser else speed_kph * 1.2
         self._trigger_kph           = trigger_kph
+        self._max_speed_kph         = max_speed_kph
 
-        self._ad = AutonomousDriving(path_file, map_name=map_name)
+        self._ad = AutonomousDriving(path_file, map_name=map_name, max_speed_kph=max_speed_kph)
 
         self._running   = False
         self._lock      = threading.Lock()
@@ -139,6 +141,10 @@ class AdRunner:
             self._recv_sock.close()
         except Exception:
             pass
+
+    def update_max_speed_kph(self, max_speed_kph: float) -> None:
+        self._max_speed_kph = float(max_speed_kph)
+        self._ad.set_max_speed_kph(self._max_speed_kph)
 
     # ── UDP 수신 ────────────────────────────────────────────────
     def _recv_loop(self) -> None:

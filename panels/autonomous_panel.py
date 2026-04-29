@@ -27,11 +27,13 @@ def _get_available_maps() -> list:
         return []
 
 _MAX_VEHICLES = 6
+_DEFAULT_MAX_SPEED_KPH = 100.0
 
 _start_ad_fn:      Optional[Callable] = None
 _stop_ad_fn:       Optional[Callable] = None
 _start_step_ad_fn: Optional[Callable] = None
 _stop_step_ad_fn:  Optional[Callable] = None
+_update_max_speed_fn: Optional[Callable] = None
 _running_step_mode = False
 _entity_slot: dict = {}        # entity_id → slot index (1-based)
 _last_status_ts: dict = {}     # slot → last post timestamp (throttle 10Hz)
@@ -42,12 +44,14 @@ def init(
     stop_ad_fn:       Callable,
     start_step_ad_fn: Callable,
     stop_step_ad_fn:  Callable,
+    update_max_speed_fn: Callable,
 ) -> None:
-    global _start_ad_fn, _stop_ad_fn, _start_step_ad_fn, _stop_step_ad_fn
+    global _start_ad_fn, _stop_ad_fn, _start_step_ad_fn, _stop_step_ad_fn, _update_max_speed_fn
     _start_ad_fn      = start_ad_fn
     _stop_ad_fn       = stop_ad_fn
     _start_step_ad_fn = start_step_ad_fn
     _stop_step_ad_fn  = stop_step_ad_fn
+    _update_max_speed_fn = update_max_speed_fn
 
 
 def build(parent) -> None:
@@ -124,14 +128,14 @@ def build(parent) -> None:
                 _labeled("Speed   :", "Target 차량이 경로를 따라 유지할 속도.\n"
                                       "Chaser 차량은 동일 경로를 Speed × 1.2 로\n"
                                       "주행하여 자연스럽게 따라붙어 충돌합니다.\n"
-                                      "예) Speed=60  →  Target 60 kph / Chaser 72 kph")
+                                      "예) Speed=60  →  Target 60 km/h / Chaser 72 km/h")
                 dpg.add_input_float(tag="au_collision_speed_kph",
                                     default_value=60.0,
                                     min_value=1.0, max_value=200.0,
                                     step=0, width=110,
                                     format="%.0f",
                                     callback=lambda: _save_state())
-                dpg.add_text("kph", color=(140, 140, 140, 255))
+                dpg.add_text("km/h", color=(140, 140, 140, 255))
                 dpg.add_spacer(width=12)
                 _labeled("Trigger :", "Target 차량이 이 속도에 도달하면\n"
                                       "Chaser가 출발합니다.\n"
@@ -142,7 +146,7 @@ def build(parent) -> None:
                                     min_value=0.0, step=0, width=100,
                                     format="%.0f",
                                     callback=lambda: _save_state())
-                dpg.add_text("kph", color=(140, 140, 140, 255))
+                dpg.add_text("km/h", color=(140, 140, 140, 255))
 
         _load_state()
 
@@ -159,12 +163,23 @@ def _build_vehicles(count: int) -> None:
             with dpg.group(horizontal=True):
                 dpg.add_text("ID    :", color=(180, 180, 180, 255))
                 dpg.add_input_text(tag=f"au_entity_id_{i}",
-                                   default_value=f"Car_{i}", width=100)
+                                   default_value=f"Car_{i}", width=100,
+                                   callback=lambda: _save_state())
                 dpg.add_spacer(width=10)
                 dpg.add_text("Port  :", color=(180, 180, 180, 255))
                 dpg.add_input_int(tag=f"au_vi_port_{i}",
                                   default_value=9090 + i,
-                                  min_value=1, max_value=65535, step=0, width=80)
+                                  min_value=1, max_value=65535, step=0, width=80,
+                                  callback=lambda: _save_state())
+                dpg.add_spacer(width=10)
+                dpg.add_text("Max Speed  :", color=(180, 180, 180, 255))
+                dpg.add_input_float(tag=f"au_max_speed_kph_{i}",
+                                    default_value=_DEFAULT_MAX_SPEED_KPH,
+                                    min_value=1.0, max_value=300.0,
+                                    step=0, width=90,
+                                    format="%.0f",
+                                    callback=lambda s=None, a=None, u=i: _on_max_speed_change(u))
+                dpg.add_text("km/h", color=(140, 140, 140, 255))
 
             with dpg.group(horizontal=True):
                 for key, label in [
@@ -186,12 +201,29 @@ def _build_vehicles(count: int) -> None:
 
 
 def _on_vehicle_count_change(sender, app_data) -> None:
+    current_state = _collect_vehicle_state()
     _build_vehicles(app_data)
+    _apply_vehicle_state(current_state)
+    _save_state()
 
 
 def _on_collision_toggle(sender, app_data) -> None:
     dpg.configure_item("au_collision_settings", show=app_data)
     _save_state()
+
+
+def _on_max_speed_change(slot: int) -> None:
+    _save_state()
+    if _update_max_speed_fn is None:
+        return
+    entity_tag = f"au_entity_id_{slot}"
+    speed_tag = f"au_max_speed_kph_{slot}"
+    if not dpg.does_item_exist(entity_tag) or not dpg.does_item_exist(speed_tag):
+        return
+    entity_id = dpg.get_value(entity_tag).strip()
+    if not entity_id:
+        return
+    _update_max_speed_fn(entity_id, float(dpg.get_value(speed_tag)))
 
 
 # ── Public callbacks ──────────────────────────────────────────
@@ -287,10 +319,11 @@ def _on_start() -> None:
         if not eid:
             continue
         vehicles.append({
-            "map_name":  map_name,
-            "path":      "path_link.csv",
-            "entity_id": eid,
-            "vi_port":   dpg.get_value(f"au_vi_port_{i}"),
+            "map_name":      map_name,
+            "path":          "path_link.csv",
+            "entity_id":     eid,
+            "vi_port":       dpg.get_value(f"au_vi_port_{i}"),
+            "max_speed_kph": dpg.get_value(f"au_max_speed_kph_{i}"),
         })
 
     if not vehicles:
@@ -302,8 +335,8 @@ def _on_start() -> None:
         log.append(
             f"[AD] 충돌 모드: {collision_cfg['chaser_entity_id']} -> "
             f"{collision_cfg['target_entity_id']} "
-            f"(speed={collision_cfg['speed_kph']:.0f}kph, "
-            f"trigger={collision_cfg['trigger_kph']:.0f}kph)"
+            f"(speed={collision_cfg['speed_kph']:.0f}km/h, "
+            f"trigger={collision_cfg['trigger_kph']:.0f}km/h)"
         )
 
     _entity_slot = {v["entity_id"]: i for i, v in enumerate(vehicles, 1)}
@@ -339,11 +372,13 @@ def _save_state() -> None:
         os.makedirs(os.path.dirname(_STATE_FILE), exist_ok=True)
         data = {
             "au_map_combo":            dpg.get_value("au_map_combo"),
+            "au_vehicle_count":        dpg.get_value("au_vehicle_count"),
             "au_collision_enable":     dpg.get_value("au_collision_enable"),
             "au_collision_chaser":     dpg.get_value("au_collision_chaser"),
             "au_collision_target":     dpg.get_value("au_collision_target"),
             "au_collision_speed_kph":   dpg.get_value("au_collision_speed_kph"),
             "au_collision_trigger_kph": dpg.get_value("au_collision_trigger_kph"),
+            "vehicles": _collect_vehicle_state(),
         }
         with open(_STATE_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
@@ -362,6 +397,12 @@ def _load_state() -> None:
         if saved_map and dpg.does_item_exist("au_map_combo"):
             if saved_map in _get_available_maps():
                 dpg.set_value("au_map_combo", saved_map)
+
+        vehicle_count = int(data.get("au_vehicle_count", 2))
+        if dpg.does_item_exist("au_vehicle_count"):
+            dpg.set_value("au_vehicle_count", vehicle_count)
+        _build_vehicles(vehicle_count)
+        _apply_vehicle_state(data.get("vehicles", []))
 
         _bool("au_collision_enable",     data, False)
         _int ("au_collision_chaser",      data, 2)
@@ -391,6 +432,28 @@ def _int(tag: str, data: dict, default: int) -> None:
 def _float(tag: str, data: dict, default: float) -> None:
     if dpg.does_item_exist(tag):
         dpg.set_value(tag, float(data.get(tag, default)))
+
+
+def _collect_vehicle_state() -> list:
+    vehicles = []
+    count = dpg.get_value("au_vehicle_count") if dpg.does_item_exist("au_vehicle_count") else 0
+    for i in range(1, count + 1):
+        vehicles.append({
+            "entity_id": dpg.get_value(f"au_entity_id_{i}") if dpg.does_item_exist(f"au_entity_id_{i}") else f"Car_{i}",
+            "vi_port": dpg.get_value(f"au_vi_port_{i}") if dpg.does_item_exist(f"au_vi_port_{i}") else 9090 + i,
+            "max_speed_kph": dpg.get_value(f"au_max_speed_kph_{i}") if dpg.does_item_exist(f"au_max_speed_kph_{i}") else _DEFAULT_MAX_SPEED_KPH,
+        })
+    return vehicles
+
+
+def _apply_vehicle_state(vehicles: list) -> None:
+    for i, vehicle in enumerate(vehicles, start=1):
+        if dpg.does_item_exist(f"au_entity_id_{i}"):
+            dpg.set_value(f"au_entity_id_{i}", str(vehicle.get("entity_id", f"Car_{i}")))
+        if dpg.does_item_exist(f"au_vi_port_{i}"):
+            dpg.set_value(f"au_vi_port_{i}", int(vehicle.get("vi_port", 9090 + i)))
+        if dpg.does_item_exist(f"au_max_speed_kph_{i}"):
+            dpg.set_value(f"au_max_speed_kph_{i}", float(vehicle.get("max_speed_kph", _DEFAULT_MAX_SPEED_KPH)))
 
 
 def _labeled(text: str, tooltip: str) -> None:

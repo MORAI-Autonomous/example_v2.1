@@ -77,14 +77,15 @@ class _VehicleCtx:
                  is_chaser: bool = False,
                  is_collision_target: bool = False,
                  speed_kph: float = 60.0,
-                 trigger_kph: float = 5.0):
+                 trigger_kph: float = 5.0,
+                 max_speed_kph: float = None):
         self.entity_id           = entity_id
         self.is_chaser           = is_chaser
         self.is_collision_target = is_collision_target
         # target: speed_kph 정속 / chaser: speed_kph × 1.2 로 추돌
         self.target_speed_kph    = speed_kph if not is_chaser else speed_kph * 1.2
         self.trigger_kph         = trigger_kph
-        self.ad                  = AutonomousDriving(path_file, map_name=map_name)
+        self.ad                  = AutonomousDriving(path_file, map_name=map_name, max_speed_kph=max_speed_kph)
         self.latest         = None
         self.lock           = threading.Lock()
         self.vi_event       = threading.Event()   # FixedStep 후 VI 도착 신호
@@ -146,15 +147,23 @@ class StepAdRunner:
                 is_collision_target = is_target,
                 speed_kph           = speed_kph,
                 trigger_kph         = (collision_cfg or {}).get("trigger_kph", 5.0),
+                max_speed_kph       = v.get("max_speed_kph"),
             )
             self._ctxs.append(ctx)
             if is_chaser:
-                role = f"Chaser ({speed_kph * 1.2:.0f} kph)"
+                role = f"Chaser ({speed_kph * 1.2:.0f} km/h)"
             elif is_target:
-                role = f"Target ({speed_kph:.0f} kph)"
+                role = f"Target ({speed_kph:.0f} km/h)"
             else:
-                role = "PathFollow"
+                role = f"PathFollow (max={v.get('max_speed_kph', 0):.0f} km/h)"
             self._log(f"[{ctx.entity_id}] VI 수신 대기 → {v.get('vi_ip', '0.0.0.0')}:{v['vi_port']} ({role})")
+
+    def update_max_speed_kph(self, entity_id: str, max_speed_kph: float) -> bool:
+        for ctx in self._ctxs:
+            if ctx.entity_id == entity_id:
+                ctx.ad.set_max_speed_kph(float(max_speed_kph))
+                return True
+        return False
 
     # ── 공개 API ──────────────────────────────────────────────
 

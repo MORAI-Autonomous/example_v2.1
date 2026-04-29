@@ -25,6 +25,7 @@ import panels.autonomous_panel    as au_panel
 import panels.file_playback_panel as fp_panel
 import panels.transform_playback_panel as tfp_panel
 
+APP_TITLE = "Sim Control Example"
 _logo_tag = None   # 로고 텍스처 태그 (main()에서 로드 후 설정)
 
 # ── 레이아웃 상수 ─────────────────────────────────────────
@@ -237,15 +238,16 @@ class AppState:
                     target_entity_id      = target_id,
                     speed_kph             = speed_kph,
                     trigger_kph           = (collision_cfg or {}).get("trigger_kph", 5.0),
+                    max_speed_kph         = v.get("max_speed_kph"),
                 )
                 runner.start()
                 self.ad_runners.append(runner)
                 if is_chaser:
-                    role = f"Chaser ({speed_kph * 1.2:.0f} kph)"
+                    role = f"Chaser ({speed_kph * 1.2:.0f} km/h)"
                 elif is_target:
-                    role = f"Target ({speed_kph:.0f} kph)"
+                    role = f"Target ({speed_kph:.0f} km/h)"
                 else:
-                    role = "PathFollow"
+                    role = f"PathFollow (max={v.get('max_speed_kph', 0):.0f} km/h)"
                 log_panel.append(f"[AD:{v['entity_id']}] 시작 (port={v['vi_port']}, {role})")
             except Exception as e:
                 log_panel.append(f"[AD:{v['entity_id']}] 시작 실패: {e}", "ERROR")
@@ -257,6 +259,17 @@ class AppState:
             runner.stop()
         self.ad_runners.clear()
         au_panel.reset_ui()
+
+    def update_ad_max_speed(self, entity_id: str, max_speed_kph: float) -> None:
+        updated = False
+        for runner in self.ad_runners:
+            if getattr(runner, "_entity_id", None) == entity_id:
+                runner.update_max_speed_kph(max_speed_kph)
+                updated = True
+        for runner in self.step_ad_runners:
+            updated = runner.update_max_speed_kph(entity_id, max_speed_kph) or updated
+        if updated:
+            log_panel.append(f"[AD:{entity_id}] max speed 업데이트 -> {max_speed_kph:.0f} km/h", "INFO")
 
     def start_step_ad(self, vehicles: list, save_data: bool = False,
                       collision_cfg: dict = None) -> None:
@@ -389,6 +402,7 @@ class AppState:
                         stop_ad_fn=self.stop_ad,
                         start_step_ad_fn=self.start_step_ad,
                         stop_step_ad_fn=self.stop_step_ad,
+                        update_max_speed_fn=self.update_ad_max_speed,
                     )
                     break
                 except Exception as e:
@@ -653,6 +667,15 @@ def build_ui(state: AppState):
                          ("tab_btn_tfp", "tfp")]:
             dpg.bind_item_theme(tag, "theme_tab_active" if name == key else "theme_tab_inactive")
 
+    with dpg.window(tag="app_info_modal", label="App Info", modal=True,
+                    show=False, no_resize=True, width=420, height=180):
+        dpg.add_text(APP_TITLE)
+        dpg.add_spacer(height=6)
+        dpg.add_text("Python example client for MORAI simulator TCP/UDP control.")
+        dpg.add_text("This menu bar is a scaffold for future app info and settings.")
+        dpg.add_spacer(height=12)
+        dpg.add_button(label="Close", callback=lambda: dpg.configure_item("app_info_modal", show=False))
+
     with dpg.window(tag="main_window", no_title_bar=True,
                     no_resize=True, no_move=True,
                     no_scrollbar=True, no_scroll_with_mouse=True):
@@ -667,11 +690,24 @@ def build_ui(state: AppState):
             TCP_SERVER_PORT = new_port
             state.connect()
 
+        with dpg.menu_bar():
+            with dpg.menu(label="App"):
+                dpg.add_menu_item(
+                    label="App Info",
+                    callback=lambda: dpg.configure_item("app_info_modal", show=True),
+                )
+                dpg.add_menu_item(
+                    label="Reconnect",
+                    callback=lambda: state.connect(),
+                )
+            with dpg.menu(label="Settings"):
+                dpg.add_menu_item(label="Preferences (Coming Soon)", enabled=False)
+
         with dpg.group(horizontal=True):
             if _logo_tag:
                 dpg.add_image(_logo_tag, width=28, height=28)
                 dpg.add_spacer(width=6)
-            dpg.add_text("MORAI Sim Control", color=(160, 160, 170))
+            dpg.add_text(APP_TITLE, color=(160, 160, 170))
             dpg.add_spacer(width=16)
             dpg.add_text("IP:", color=(160, 160, 170))
             dpg.add_input_text(tag="tb_ip_input",
@@ -846,7 +882,7 @@ def main():
             pass
 
     dpg.create_viewport(
-        title="MORAI Sim Control",
+        title=APP_TITLE,
         width=W_INIT, height=H_INIT,
         min_width=W_MIN, min_height=H_MIN,
         resizable=True,

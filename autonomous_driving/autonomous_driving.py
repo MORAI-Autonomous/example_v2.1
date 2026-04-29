@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 
 from .localization.path_manager import PathManager
 from .planning.adaptive_cruise_control import AdaptiveCruiseControl
@@ -12,8 +13,9 @@ from .mgeo.calc_mgeo_path import mgeo_dijkstra_path
 
 
 class AutonomousDriving:
-    def __init__(self, path_file_name=None, map_name=None):
+    def __init__(self, path_file_name=None, map_name=None, max_speed_kph=None):
         config = Config()
+        self._velocity_profile_cfg = dict(config['planning']['velocity_profile'])
 
         if config["map"]["use_mgeo_path"]:
             mgeo_path = mgeo_dijkstra_path(config["map"]["name"])
@@ -29,7 +31,7 @@ class AutonomousDriving:
             self.path_manager = PathManager(
                 self.path, config["map"]["is_closed_path"], config["map"]["local_path_size"]
             )
-        self.path_manager.set_velocity_profile(**config['planning']['velocity_profile'])
+        self.set_max_speed_kph(max_speed_kph)
 
 
 
@@ -40,6 +42,12 @@ class AutonomousDriving:
         self.pure_pursuit = PurePursuit(
             wheelbase=config['common']['wheelbase'], **config['control']['pure_pursuit']
         )
+
+    def set_max_speed_kph(self, max_speed_kph=None):
+        velocity_profile_cfg = dict(self._velocity_profile_cfg)
+        if max_speed_kph is not None:
+            velocity_profile_cfg["max_velocity"] = float(max_speed_kph)
+        self.path_manager.set_velocity_profile(**velocity_profile_cfg)
 
     def execute(self, vehicle_state):
         # 현재 위치 기반으로 local path과 planned velocity 추출
