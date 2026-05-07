@@ -2,34 +2,39 @@
 
 > Auto-generated from `transport/message_schema.py`. Do not edit manually.
 
+## Common Header
+
+Every TCP packet uses this 16-byte header before the payload described below.
+
+| Offset | Type | Field | Description |
+|--------|------|-------|-------------|
+| `+0` | `uint8` | `magic` | Fixed magic byte `0x4D` (`'M'`) |
+| `+1` | `uint8` | `msg_class` | `0x01` = request, `0x02` = response |
+| `+2` | `uint32` | `msg_type` | Command / response type such as `0x1102` |
+| `+6` | `uint32` | `payload_size` | Payload size in bytes, excluding the 16-byte header |
+| `+10` | `uint32` | `request_id` | Request / response correlation id |
+| `+14` | `uint16` | `flag` | Reserved, currently `0` |
+
+- Header format: `proto.HEADER_FMT = <BBIIIH`
+- Header size: `16 bytes`
+- Payload sizes shown in this document do not include the 16-byte header.
+
 ## Summary
 
-| Msg Type | Direction | Name | Payload |
-|----------|-----------|------|---------|
-| `0x1101` | `request` | `GetSimulationTimeStatus` | `0 bytes` |
-| `0x1102` | `request` | `SetSimulationTimeModeCommand` | `12 bytes` |
-| `0x1201` | `request` | `FixedStep` | `4 bytes` |
-| `0x1202` | `request` | `SaveData` | `0 bytes` |
-| `0x1301` | `request` | `CreateObject` | `36 bytes` |
-| `0x1302` | `request` | `ManualControlById` | `>= 28 bytes` |
-| `0x1303` | `request` | `TransformControlById` | `>= 40 bytes` |
-| `0x1304` | `request` | `SetTrajectory` | `>= 16 bytes + 32 bytes * item_count` |
-| `0x1401` | `request` | `ActiveSuiteStatus` | `0 bytes` |
-| `0x1402` | `request` | `LoadSuite` | `>= 4 bytes` |
-| `0x1504` | `request` | `ScenarioStatus` | `0 bytes` |
-| `0x1505` | `request` | `ScenarioControl` | `>= 8 bytes` |
-| `0x1101` | `response` | `GetSimulationTimeStatus` | `40 bytes` |
-| `0x1102` | `response` | `SetSimulationTimeModeCommand` | `20 bytes` |
-| `0x1201` | `response` | `FixedStep` | `8 bytes` |
-| `0x1202` | `response` | `SaveData` | `8 bytes` |
-| `0x1301` | `response` | `CreateObject` | `>= 12 bytes` |
-| `0x1302` | `response` | `ManualControlById` | `8 bytes` |
-| `0x1303` | `response` | `TransformControlById` | `8 bytes` |
-| `0x1304` | `response` | `SetTrajectory` | `8 bytes` |
-| `0x1401` | `response` | `ActiveSuiteStatus` | `>= 20 bytes + variable bytes * item_count` |
-| `0x1402` | `response` | `LoadSuite` | `8 bytes` |
-| `0x1504` | `response` | `ScenarioStatus` | `12 bytes` |
-| `0x1505` | `response` | `ScenarioControl` | `8 bytes` |
+| Msg Type | Name | Request Payload | Response Payload |
+|----------|------|-----------------|------------------|
+| `0x1101` | `GetSimulationTimeStatus` | `0 bytes` | `44 bytes (mode = 1) / 48 bytes (mode = 2)` |
+| `0x1102` | `SetSimulationTimeModeCommand` | `16 bytes (mode = 1) / 20 bytes (mode = 2)` | `20 bytes` |
+| `0x1201` | `FixedStep` | `4 bytes` | `8 bytes` |
+| `0x1202` | `SaveData` | `0 bytes` | `8 bytes` |
+| `0x1301` | `CreateObject` | `36 bytes` | `>= 12 bytes` |
+| `0x1302` | `ManualControlById` | `>= 28 bytes` | `8 bytes` |
+| `0x1303` | `TransformControlById` | `>= 40 bytes` | `8 bytes` |
+| `0x1304` | `SetTrajectory` | `>= 16 bytes + 32 bytes * item_count` | `8 bytes` |
+| `0x1401` | `ActiveSuiteStatus` | `0 bytes` | `>= 20 bytes + variable bytes * item_count` |
+| `0x1402` | `LoadSuite` | `>= 4 bytes` | `8 bytes` |
+| `0x1504` | `ScenarioStatus` | `0 bytes` | `12 bytes` |
+| `0x1505` | `ScenarioControl` | `>= 8 bytes` | `8 bytes` |
 
 ## Requests
 
@@ -41,7 +46,7 @@
 
 Query current simulation time mode and timing state.
 
-Wire layout: `(no payload)`
+Wire layout: variant-specific
 
 This message has no payload.
 
@@ -51,18 +56,41 @@ Notes:
 ## `0x1102` SetSimulationTimeModeCommand
 
 - Direction: `request`
-- Payload: `12 bytes`
+- Payload: `16 bytes (mode = 1) / 20 bytes (mode = 2)`
 - Builder: `tcp.send_simulation_time_mode_command()`
 
-Set simulation time mode, fixed delta, and variable-mode speed.
+Set simulation time mode using mode-specific payload layouts.
 
-Wire layout: `i f f`
+Wire layout: variant-specific
+
+Variants:
+
+### Variable Mode
+
+- Selector: `mode = 1`
+
+Wire layout: `i i i f`
 
 | Field | Type | Description |
 |------|------|-------------|
-| `mode` | `int32` | 1=Variable, 2=Fixed Delta, 3=Fixed Step |
-| `fixed_delta` | `float32` | Milliseconds per simulation tick |
-| `simulation_speed` | `float32` | Playback speed multiplier for variable mode |
+| `mode` | `int32` | 1 = TIME_MODE_VARIABLE |
+| `target_fps` | `int32` | Target FPS (10~200) |
+| `physics_delta_time` | `int32` | Physics substep delta time in ms |
+| `simulation_speed` | `float32` | Simulation speed multiplier |
+
+### Fixed Mode
+
+- Selector: `mode = 2`
+
+Wire layout: `i i i i i`
+
+| Field | Type | Description |
+|------|------|-------------|
+| `mode` | `int32` | 2 = TIME_MODE_FIXED |
+| `simulation_delta_time` | `int32` | Simulation tick delta time in ms |
+| `physics_delta_time` | `int32` | Physics substep delta time in ms |
+| `rtf` | `int32` | Real-Time Factor (1~20) |
+| `user_control` | `int32` | 0 = auto, 1 = step-by-step |
 
 ## `0x1201` FixedStep
 
@@ -86,7 +114,7 @@ Wire layout: `I`
 
 Trigger simulator-side data capture.
 
-Wire layout: `(no payload)`
+Wire layout: variant-specific
 
 This message has no payload.
 
@@ -191,7 +219,7 @@ Notes:
 
 Query the active suite and scenario list.
 
-Wire layout: `(no payload)`
+Wire layout: variant-specific
 
 This message has no payload.
 
@@ -220,7 +248,7 @@ Wire layout: `[uint32 len][bytes]`
 
 Query current scenario execution state.
 
-Wire layout: `(no payload)`
+Wire layout: variant-specific
 
 This message has no payload.
 
@@ -247,23 +275,51 @@ Wire layout: `I [uint32 len][bytes]`
 ## `0x1101` GetSimulationTimeStatus
 
 - Direction: `response`
-- Payload: `40 bytes`
+- Payload: `44 bytes (mode = 1) / 48 bytes (mode = 2)`
 - Parser: `tcp.parse_get_status_payload()`
 
-Return current simulation time mode and current simulation clock state.
+Return current simulation time mode and current simulation clock state using mode-specific layouts.
 
-Wire layout: `I I I f f Q q I`
+Wire layout: variant-specific
+
+Variants:
+
+### Variable Mode
+
+- Selector: `mode = 1`
+
+Wire layout: `I I I i i f Q q i`
 
 | Field | Type | Description |
 |------|------|-------------|
 | `result_code` | `uint32` | - |
 | `detail_code` | `uint32` | - |
-| `mode` | `uint32` | 1=Variable, 2=Fixed Delta, 3=Fixed Step |
-| `fixed_delta` | `float32` | Milliseconds per simulation tick |
-| `simulation_speed` | `float32` | Playback speed multiplier for variable mode |
-| `step_index` | `uint64` | Current fixed-step index |
-| `seconds` | `int64` | Simulation clock seconds |
-| `nanos` | `uint32` | Simulation clock nanoseconds |
+| `mode` | `uint32` | 1 = TIME_MODE_VARIABLE |
+| `target_fps` | `int32` | Target FPS |
+| `physics_delta_time` | `int32` | Physics substep delta time in ms |
+| `simulation_speed` | `float32` | Simulation speed multiplier |
+| `step_index` | `uint64` | Accumulated step count |
+| `seconds` | `int64` | Simulation time seconds |
+| `nanos` | `int32` | Simulation time nanoseconds remainder |
+
+### Fixed Mode
+
+- Selector: `mode = 2`
+
+Wire layout: `I I I i i i i Q q i`
+
+| Field | Type | Description |
+|------|------|-------------|
+| `result_code` | `uint32` | - |
+| `detail_code` | `uint32` | - |
+| `mode` | `uint32` | 2 = TIME_MODE_FIXED |
+| `simulation_delta_time` | `int32` | Simulation tick delta time in ms |
+| `physics_delta_time` | `int32` | Physics substep delta time in ms |
+| `rtf` | `int32` | Real-Time Factor (1~20) |
+| `user_control` | `int32` | 0 = auto, 1 = step-by-step |
+| `step_index` | `uint64` | Accumulated step count |
+| `seconds` | `int64` | Simulation time seconds |
+| `nanos` | `int32` | Simulation time nanoseconds remainder |
 
 ## `0x1102` SetSimulationTimeModeCommand
 

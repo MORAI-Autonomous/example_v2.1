@@ -16,6 +16,7 @@ from transport.message_schema import (
     get_message,
     get_response_message,
     get_min_payload_size,
+    get_variant_for_values,
     iter_messages,
     iter_response_messages,
     render_struct_format,
@@ -31,7 +32,28 @@ def _expect(condition: bool, message: str) -> None:
 
 def validate_schema_against_protocol_defs() -> None:
     msg_1102 = get_message(0x1102)
-    _expect(proto.SET_SIM_TIME_MODE_REQ_SIZE == get_min_payload_size(msg_1102), "0x1102 size mismatch")
+    variable_variant = get_variant_for_values(msg_1102, {"mode": proto.TIME_MODE_VARIABLE})
+    fixed_variant = get_variant_for_values(msg_1102, {"mode": proto.TIME_MODE_FIXED})
+    _expect(
+        proto.SET_SIM_TIME_MODE_VARIABLE_REQ_SIZE == get_min_payload_size(MessageSpec(
+            msg_type=msg_1102.msg_type,
+            name=msg_1102.name,
+            direction=msg_1102.direction,
+            summary=msg_1102.summary,
+            fields=variable_variant.fields,
+        )),
+        "0x1102 variable request size mismatch",
+    )
+    _expect(
+        proto.SET_SIM_TIME_MODE_FIXED_REQ_SIZE == get_min_payload_size(MessageSpec(
+            msg_type=msg_1102.msg_type,
+            name=msg_1102.name,
+            direction=msg_1102.direction,
+            summary=msg_1102.summary,
+            fields=fixed_variant.fields,
+        )),
+        "0x1102 fixed request size mismatch",
+    )
 
     msg_1201 = get_message(0x1201)
     _expect(proto.SET_TRAJECTORY_FOLLOW_MODE_SIZE == 4, "internal protocol size invariant changed")
@@ -55,7 +77,29 @@ def validate_schema_against_protocol_defs() -> None:
     _expect(get_min_payload_size(msg_1505) == 8, "0x1505 min size mismatch")
 
     resp_1101 = get_response_message(0x1101)
-    _expect(proto.GET_STATUS_PAYLOAD_SIZE == get_min_payload_size(resp_1101), "0x1101 response size mismatch")
+    _expect(get_min_payload_size(resp_1101) == proto.GET_STATUS_VARIABLE_SIZE, "0x1101 response min size mismatch")
+    variable_resp_variant = get_variant_for_values(resp_1101, {"mode": proto.TIME_MODE_VARIABLE})
+    fixed_resp_variant = get_variant_for_values(resp_1101, {"mode": proto.TIME_MODE_FIXED})
+    _expect(
+        get_min_payload_size(MessageSpec(
+            msg_type=resp_1101.msg_type,
+            name=resp_1101.name,
+            direction=resp_1101.direction,
+            summary=resp_1101.summary,
+            fields=variable_resp_variant.fields,
+        )) == proto.GET_STATUS_VARIABLE_SIZE,
+        "0x1101 variable response size mismatch",
+    )
+    _expect(
+        get_min_payload_size(MessageSpec(
+            msg_type=resp_1101.msg_type,
+            name=resp_1101.name,
+            direction=resp_1101.direction,
+            summary=resp_1101.summary,
+            fields=fixed_resp_variant.fields,
+        )) == proto.GET_STATUS_FIXED_SIZE,
+        "0x1101 fixed response size mismatch",
+    )
 
     resp_1102 = get_response_message(0x1102)
     _expect(proto.SET_SIM_TIME_MODE_RESP_SIZE == get_min_payload_size(resp_1102), "0x1102 response size mismatch")
@@ -106,7 +150,7 @@ def render_message_section(message: MessageSpec) -> str:
         "",
         message.summary,
         "",
-        f"Wire layout: `{render_struct_format(message.fields)}`",
+        f"Wire layout: `{render_struct_format(message.fields)}`" if message.fields else "Wire layout: variant-specific",
         "",
     ]
 
@@ -121,8 +165,30 @@ def render_message_section(message: MessageSpec) -> str:
             desc = field.description or "-"
             lines.append(f"| `{field.name}` | `{render_wire_type(field.field_type)}` | {desc} |")
         lines.append("")
-    else:
+    elif not message.variants:
         lines.append("This message has no payload.\n")
+
+    if message.variants:
+        lines.append("Variants:")
+        lines.append("")
+        for variant in message.variants:
+            lines.append(f"### {variant.name}")
+            lines.append("")
+            if variant.summary:
+                lines.append(f"- Selector: `{variant.summary}`")
+                lines.append("")
+            lines.append(f"Wire layout: `{render_struct_format(variant.fields)}`")
+            lines.append("")
+            lines.extend(
+                [
+                    "| Field | Type | Description |",
+                    "|------|------|-------------|",
+                ]
+            )
+            for field in variant.fields:
+                desc = field.description or "-"
+                lines.append(f"| `{field.name}` | `{render_wire_type(field.field_type)}` | {desc} |")
+            lines.append("")
 
     if message.repeat_fields:
         lines.extend(
@@ -147,24 +213,63 @@ def render_message_section(message: MessageSpec) -> str:
     return "\n".join(lines)
 
 
+def render_summary_rows(request_messages: list[MessageSpec], response_messages: list[MessageSpec]) -> list[str]:
+    response_by_type = {message.msg_type: message for message in response_messages}
+    seen_msg_types = set()
+    rows: list[str] = []
+
+    for request in request_messages:
+        response = response_by_type.get(request.msg_type)
+        rows.append(
+            f"| `0x{request.msg_type:04X}` | `{request.name}` | "
+            f"`{describe_payload_size(request)}` | "
+            f"`{describe_payload_size(response) if response else '-'}` |"
+        )
+        seen_msg_types.add(request.msg_type)
+
+    for response in response_messages:
+        if response.msg_type in seen_msg_types:
+            continue
+        rows.append(
+            f"| `0x{response.msg_type:04X}` | `{response.name}` | "
+            f"`-` | `{describe_payload_size(response)}` |"
+        )
+
+    return rows
+
+
 def render_document() -> str:
     request_messages = list(iter_messages())
     response_messages = list(iter_response_messages())
-    messages = request_messages + response_messages
     lines = [
         "# TCP API Reference",
         "",
         "> Auto-generated from `transport/message_schema.py`. Do not edit manually.",
         "",
+        "## Common Header",
+        "",
+        "Every TCP packet uses this 16-byte header before the payload described below.",
+        "",
+        "| Offset | Type | Field | Description |",
+        "|--------|------|-------|-------------|",
+        "| `+0` | `uint8` | `magic` | Fixed magic byte `0x4D` (`'M'`) |",
+        "| `+1` | `uint8` | `msg_class` | `0x01` = request, `0x02` = response |",
+        "| `+2` | `uint32` | `msg_type` | Command / response type such as `0x1102` |",
+        "| `+6` | `uint32` | `payload_size` | Payload size in bytes, excluding the 16-byte header |",
+        "| `+10` | `uint32` | `request_id` | Request / response correlation id |",
+        "| `+14` | `uint16` | `flag` | Reserved, currently `0` |",
+        "",
+        "- Header format: `proto.HEADER_FMT = <BBIIIH`",
+        "- Header size: `16 bytes`",
+        "- Payload sizes shown in this document do not include the 16-byte header.",
+        "",
         "## Summary",
         "",
-        "| Msg Type | Direction | Name | Payload |",
-        "|----------|-----------|------|---------|",
+        "| Msg Type | Name | Request Payload | Response Payload |",
+        "|----------|------|-----------------|------------------|",
     ]
-    for message in messages:
-        lines.append(
-            f"| `0x{message.msg_type:04X}` | `{message.direction}` | `{message.name}` | `{describe_payload_size(message)}` |"
-        )
+    for row in render_summary_rows(request_messages, response_messages):
+        lines.append(row)
     lines.append("")
 
     lines.append("## Requests")
