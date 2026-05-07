@@ -70,23 +70,53 @@ def build(parent: int | str) -> None:
                     lambda rid: tcp.send_get_status(_tcp_sock, rid)))
 
         # Mode : [combo] [Hz / speed input] [Set]
-        _MODE_ITEMS = ["Variable", "Fixed Delta", "Fixed Step"]
+        _MODE_ITEMS = ["Variable", "Fixed"]
         with dpg.group(horizontal=True):
             dpg.add_text("Mode       :", color=(180, 180, 180, 255))
             dpg.add_combo(tag="sim_mode_combo", items=_MODE_ITEMS,
-                          default_value="Fixed Step", width=105,
+                          default_value="Fixed", width=105,
                           callback=_on_sim_mode_combo)
-            dpg.add_input_float(tag="sim_hz", default_value=60.0,
-                                min_value=1.0, max_value=1000.0,
-                                format="%.1f", step=0, width=65, show=True)
-            dpg.add_text("Hz", tag="sim_hz_label",
-                         color=(160, 160, 160, 255), show=True)
-            dpg.add_input_int(tag="sim_speed", default_value=1,
-                              min_value=1, max_value=100,
-                              step=0, width=55, show=False)
-            dpg.add_text("x", tag="sim_speed_label",
-                         color=(160, 160, 160, 255), show=False)
             dpg.add_button(label="Set", callback=_on_set_sim_mode)
+
+        with dpg.group(tag="sim_variable_group", show=False):
+            with dpg.group(horizontal=True):
+                dpg.add_text("Target FPS :", color=(180, 180, 180, 255))
+                dpg.add_input_int(tag="sim_target_fps", default_value=60,
+                                  min_value=10, max_value=200,
+                                  step=0, width=80)
+                dpg.add_spacer(width=12)
+                dpg.add_text("Physics DT :", color=(180, 180, 180, 255))
+                dpg.add_input_int(tag="sim_physics_dt_var", default_value=10,
+                                  min_value=1, max_value=1000,
+                                  step=0, width=80)
+                dpg.add_text("ms", color=(160, 160, 160, 255))
+                dpg.add_spacer(width=12)
+                dpg.add_text("Speed :", color=(180, 180, 180, 255))
+                dpg.add_input_float(tag="sim_speed", default_value=1.0,
+                                    min_value=0.1, max_value=100.0,
+                                    format="%.2f", step=0, width=70)
+                dpg.add_text("x", color=(160, 160, 160, 255))
+
+        with dpg.group(tag="sim_fixed_group", show=True):
+            with dpg.group(horizontal=True):
+                dpg.add_text("Sim DT     :", color=(180, 180, 180, 255))
+                dpg.add_input_int(tag="sim_delta_ms", default_value=16,
+                                  min_value=1, max_value=1000,
+                                  step=0, width=80)
+                dpg.add_text("ms", color=(160, 160, 160, 255))
+                dpg.add_spacer(width=12)
+                dpg.add_text("Physics DT :", color=(180, 180, 180, 255))
+                dpg.add_input_int(tag="sim_physics_dt_fixed", default_value=10,
+                                  min_value=1, max_value=1000,
+                                  step=0, width=80)
+                dpg.add_text("ms", color=(160, 160, 160, 255))
+            with dpg.group(horizontal=True):
+                dpg.add_text("RTF        :", color=(180, 180, 180, 255))
+                dpg.add_input_int(tag="sim_rtf", default_value=1,
+                                  min_value=1, max_value=20,
+                                  step=0, width=80)
+                dpg.add_spacer(width=12)
+                dpg.add_checkbox(tag="sim_user_control", label="User Control", default_value=False)
 
         # ── Scenario ───────────────────────────────────────
         _section("SCENARIO")
@@ -395,33 +425,38 @@ def _load_suite() -> None:
 
 def _on_sim_mode_combo(sender, app_data) -> None:
     is_variable = (app_data == "Variable")
-    dpg.configure_item("sim_hz",          show=not is_variable)
-    dpg.configure_item("sim_hz_label",    show=not is_variable)
-    dpg.configure_item("sim_speed",       show=is_variable)
-    dpg.configure_item("sim_speed_label", show=is_variable)
+    dpg.configure_item("sim_variable_group", show=is_variable)
+    dpg.configure_item("sim_fixed_group", show=not is_variable)
 
 
 def _on_set_sim_mode() -> None:
     _MODE_MAP = {
         "Variable":    proto.TIME_MODE_VARIABLE,
-        "Fixed Delta": proto.TIME_MODE_FIXED_DELTA,
-        "Fixed Step":  proto.TIME_MODE_FIXED_STEP,
+        "Fixed":       proto.TIME_MODE_FIXED,
     }
     mode_str = dpg.get_value("sim_mode_combo")
     mode     = _MODE_MAP[mode_str]
 
     if mode == proto.TIME_MODE_VARIABLE:
-        speed       = float(dpg.get_value("sim_speed"))
-        fixed_delta = 0.0
+        params = {
+            "mode": mode,
+            "target_fps": int(dpg.get_value("sim_target_fps")),
+            "physics_delta_time": int(dpg.get_value("sim_physics_dt_var")),
+            "simulation_speed": float(dpg.get_value("sim_speed")),
+        }
     else:
-        speed       = 1.0
-        fixed_delta = 1000.0 / max(dpg.get_value("sim_hz"), 1.0)
+        params = {
+            "mode": mode,
+            "simulation_delta_time": int(dpg.get_value("sim_delta_ms")),
+            "physics_delta_time": int(dpg.get_value("sim_physics_dt_fixed")),
+            "rtf": int(dpg.get_value("sim_rtf")),
+            "user_control": 1 if dpg.get_value("sim_user_control") else 0,
+        }
 
     _dispatch(
         proto.MSG_TYPE_SET_SIMULATION_TIME_MODE_COMMAND,
-        lambda rid, m=mode, fd=fixed_delta, sp=speed:
-            tcp.send_simulation_time_mode_command(
-                _tcp_sock, rid, mode=m, fixed_delta=fd, simulation_speed=sp),
+        lambda rid, kwargs=params:
+            tcp.send_simulation_time_mode_command(_tcp_sock, rid, **kwargs),
     )
 
 
@@ -439,6 +474,14 @@ def _save_state() -> None:
         os.makedirs(os.path.dirname(_STATE_FILE), exist_ok=True)
         data = {
             "suite_path":        dpg.get_value("suite_path"),
+            "sim_mode_combo":    dpg.get_value("sim_mode_combo"),
+            "sim_target_fps":    dpg.get_value("sim_target_fps"),
+            "sim_physics_dt_var": dpg.get_value("sim_physics_dt_var"),
+            "sim_speed":         dpg.get_value("sim_speed"),
+            "sim_delta_ms":      dpg.get_value("sim_delta_ms"),
+            "sim_physics_dt_fixed": dpg.get_value("sim_physics_dt_fixed"),
+            "sim_rtf":           dpg.get_value("sim_rtf"),
+            "sim_user_control":  dpg.get_value("sim_user_control"),
             "sc_timer_enabled":  dpg.get_value("sc_timer_enabled"),
             "sc_timer_min":      dpg.get_value("sc_timer_min"),
             "sc_timer_sec":      dpg.get_value("sc_timer_sec"),
@@ -457,6 +500,21 @@ def _load_state() -> None:
             data = json.load(f)
         if data.get("suite_path") and dpg.does_item_exist("suite_path"):
             dpg.set_value("suite_path", data["suite_path"])
+        if dpg.does_item_exist("sim_mode_combo"):
+            dpg.set_value("sim_mode_combo", data.get("sim_mode_combo", "Fixed"))
+            _on_sim_mode_combo(None, dpg.get_value("sim_mode_combo"))
+        for tag, default in [
+            ("sim_target_fps", 60),
+            ("sim_physics_dt_var", 10),
+            ("sim_speed", 1.0),
+            ("sim_delta_ms", 16),
+            ("sim_physics_dt_fixed", 10),
+            ("sim_rtf", 1),
+        ]:
+            if dpg.does_item_exist(tag):
+                dpg.set_value(tag, data.get(tag, default))
+        if dpg.does_item_exist("sim_user_control"):
+            dpg.set_value("sim_user_control", bool(data.get("sim_user_control", False)))
         if dpg.does_item_exist("sc_timer_enabled"):
             dpg.set_value("sc_timer_enabled", data.get("sc_timer_enabled", True))
         if dpg.does_item_exist("sc_timer_min"):

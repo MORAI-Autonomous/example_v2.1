@@ -13,12 +13,22 @@ class FieldSpec:
 
 
 @dataclass(frozen=True)
+class VariantSpec:
+    name: str
+    selector_field: str
+    selector_value: int
+    summary: str = ""
+    fields: tuple[FieldSpec, ...] = ()
+
+
+@dataclass(frozen=True)
 class MessageSpec:
     msg_type: int
     name: str
     direction: str
     summary: str
     fields: tuple[FieldSpec, ...] = ()
+    variants: tuple[VariantSpec, ...] = ()
     repeat_fields: tuple[FieldSpec, ...] = ()
     handler: str = ""
     parser: str = ""
@@ -72,12 +82,34 @@ MESSAGES: tuple[MessageSpec, ...] = (
         msg_type=0x1102,
         name="SetSimulationTimeModeCommand",
         direction="request",
-        summary="Set simulation time mode, fixed delta, and variable-mode speed.",
+        summary="Set simulation time mode using mode-specific payload layouts.",
         handler="tcp.send_simulation_time_mode_command()",
-        fields=(
-            FieldSpec("mode", "int32", "1=Variable, 2=Fixed Delta, 3=Fixed Step"),
-            FieldSpec("fixed_delta", "float32", "Milliseconds per simulation tick"),
-            FieldSpec("simulation_speed", "float32", "Playback speed multiplier for variable mode"),
+        variants=(
+            VariantSpec(
+                name="Variable Mode",
+                selector_field="mode",
+                selector_value=1,
+                summary="mode = 1",
+                fields=(
+                    FieldSpec("mode", "int32", "1 = TIME_MODE_VARIABLE"),
+                    FieldSpec("target_fps", "int32", "Target FPS (10~200)"),
+                    FieldSpec("physics_delta_time", "int32", "Physics substep delta time in ms"),
+                    FieldSpec("simulation_speed", "float32", "Simulation speed multiplier"),
+                ),
+            ),
+            VariantSpec(
+                name="Fixed Mode",
+                selector_field="mode",
+                selector_value=2,
+                summary="mode = 2",
+                fields=(
+                    FieldSpec("mode", "int32", "2 = TIME_MODE_FIXED"),
+                    FieldSpec("simulation_delta_time", "int32", "Simulation tick delta time in ms"),
+                    FieldSpec("physics_delta_time", "int32", "Physics substep delta time in ms"),
+                    FieldSpec("rtf", "int32", "Real-Time Factor (1~20)"),
+                    FieldSpec("user_control", "int32", "0 = auto, 1 = step-by-step"),
+                ),
+            ),
         ),
     ),
     MessageSpec(
@@ -208,17 +240,44 @@ RESPONSE_MESSAGES: tuple[MessageSpec, ...] = (
         msg_type=0x1101,
         name="GetSimulationTimeStatus",
         direction="response",
-        summary="Return current simulation time mode and current simulation clock state.",
+        summary="Return current simulation time mode and current simulation clock state using mode-specific layouts.",
         parser="tcp.parse_get_status_payload()",
-        fields=(
-            FieldSpec("result_code", "uint32"),
-            FieldSpec("detail_code", "uint32"),
-            FieldSpec("mode", "uint32", "1=Variable, 2=Fixed Delta, 3=Fixed Step"),
-            FieldSpec("fixed_delta", "float32", "Milliseconds per simulation tick"),
-            FieldSpec("simulation_speed", "float32", "Playback speed multiplier for variable mode"),
-            FieldSpec("step_index", "uint64", "Current fixed-step index"),
-            FieldSpec("seconds", "int64", "Simulation clock seconds"),
-            FieldSpec("nanos", "uint32", "Simulation clock nanoseconds"),
+        variants=(
+            VariantSpec(
+                name="Variable Mode",
+                selector_field="mode",
+                selector_value=1,
+                summary="mode = 1",
+                fields=(
+                    FieldSpec("result_code", "uint32"),
+                    FieldSpec("detail_code", "uint32"),
+                    FieldSpec("mode", "uint32", "1 = TIME_MODE_VARIABLE"),
+                    FieldSpec("target_fps", "int32", "Target FPS"),
+                    FieldSpec("physics_delta_time", "int32", "Physics substep delta time in ms"),
+                    FieldSpec("simulation_speed", "float32", "Simulation speed multiplier"),
+                    FieldSpec("step_index", "uint64", "Accumulated step count"),
+                    FieldSpec("seconds", "int64", "Simulation time seconds"),
+                    FieldSpec("nanos", "int32", "Simulation time nanoseconds remainder"),
+                ),
+            ),
+            VariantSpec(
+                name="Fixed Mode",
+                selector_field="mode",
+                selector_value=2,
+                summary="mode = 2",
+                fields=(
+                    FieldSpec("result_code", "uint32"),
+                    FieldSpec("detail_code", "uint32"),
+                    FieldSpec("mode", "uint32", "2 = TIME_MODE_FIXED"),
+                    FieldSpec("simulation_delta_time", "int32", "Simulation tick delta time in ms"),
+                    FieldSpec("physics_delta_time", "int32", "Physics substep delta time in ms"),
+                    FieldSpec("rtf", "int32", "Real-Time Factor (1~20)"),
+                    FieldSpec("user_control", "int32", "0 = auto, 1 = step-by-step"),
+                    FieldSpec("step_index", "uint64", "Accumulated step count"),
+                    FieldSpec("seconds", "int64", "Simulation time seconds"),
+                    FieldSpec("nanos", "int32", "Simulation time nanoseconds remainder"),
+                ),
+            ),
         ),
     ),
     MessageSpec(
@@ -377,6 +436,17 @@ def get_response_message(msg_type: int) -> MessageSpec:
 
 
 def get_static_payload_size(message: MessageSpec) -> Optional[int]:
+    if message.variants:
+        sizes = []
+        for variant in message.variants:
+            total = 0
+            for field in variant.fields:
+                size = TYPE_SIZES[field.field_type]
+                if size is None:
+                    return None
+                total += size
+            sizes.append(total)
+        return sizes[0] if sizes and all(size == sizes[0] for size in sizes) else None
     total = 0
     for field in message.fields:
         size = TYPE_SIZES[field.field_type]
@@ -387,6 +457,15 @@ def get_static_payload_size(message: MessageSpec) -> Optional[int]:
 
 
 def get_min_payload_size(message: MessageSpec) -> int:
+    if message.variants:
+        totals = []
+        for variant in message.variants:
+            total = 0
+            for field in variant.fields:
+                size = TYPE_SIZES[field.field_type]
+                total += 4 if size is None else size
+            totals.append(total)
+        return min(totals) if totals else 0
     total = 0
     for field in message.fields:
         size = TYPE_SIZES[field.field_type]
@@ -398,6 +477,21 @@ def get_min_payload_size(message: MessageSpec) -> int:
 
 
 def describe_payload_size(message: MessageSpec) -> str:
+    if message.variants:
+        variant_desc = []
+        for variant in message.variants:
+            total = 0
+            dynamic = False
+            for field in variant.fields:
+                size = TYPE_SIZES[field.field_type]
+                if size is None:
+                    total += 4
+                    dynamic = True
+                else:
+                    total += size
+            size_text = f">= {total} bytes" if dynamic else f"{total} bytes"
+            variant_desc.append(f"{size_text} ({variant.summary or variant.name})")
+        return " / ".join(variant_desc)
     static_size = get_static_payload_size(message)
     if static_size is not None:
         return f"{static_size} bytes"
@@ -423,6 +517,18 @@ def render_struct_format(fields: Iterable[FieldSpec]) -> str:
         else:
             fmt_parts.append(STRUCT_FORMAT_CHARS[field.field_type])
     return " ".join(fmt_parts) if fmt_parts else "(no payload)"
+
+
+def get_variant_for_values(message: MessageSpec, values: Mapping[str, Any]) -> VariantSpec:
+    selector_field = message.variants[0].selector_field if message.variants else "selector"
+    selector_value = values.get(selector_field)
+    for variant in message.variants:
+        if selector_value == variant.selector_value:
+            return variant
+    raise ValueError(
+        f"message 0x{message.msg_type:04X} does not define a variant for "
+        f"{selector_field}={selector_value}"
+    )
 
 
 def fixed_fields(fields: Iterable[FieldSpec]) -> tuple[FieldSpec, ...]:
@@ -469,7 +575,11 @@ def pack_message_payload(
     repeated_items: Optional[Sequence[Mapping[str, Any]]] = None,
 ) -> bytes:
     message = get_message(msg_type)
-    payload = pack_fields(message.fields, values)
+    if message.variants:
+        variant = get_variant_for_values(message, values)
+        payload = pack_fields(variant.fields, values)
+    else:
+        payload = pack_fields(message.fields, values)
     if message.repeat_fields:
         if repeated_items is None:
             raise ValueError(f"message 0x{msg_type:04X} requires repeated_items")
@@ -529,7 +639,35 @@ def unpack_message_payload(
     repeated_count_field: Optional[str] = None,
 ) -> Tuple[Dict[str, Any], List[Dict[str, Any]], int]:
     message = get_message(msg_type) if direction == "request" else get_response_message(msg_type)
-    values, offset = unpack_fields(message.fields, payload, 0)
+    if message.variants:
+        selector_field = message.variants[0].selector_field
+        selector_fields = message.variants[0].fields
+        selector_offset = 0
+        selector_type = None
+        for field in selector_fields:
+            if field.name == selector_field:
+                selector_type = field.field_type
+                break
+            field_size = TYPE_SIZES[field.field_type]
+            if field_size is None:
+                raise ValueError(
+                    f"message 0x{msg_type:04X} selector_field {selector_field} "
+                    f"cannot follow variable-length field {field.name}"
+                )
+            selector_offset += field_size
+        if selector_type is None:
+            raise ValueError(f"message 0x{msg_type:04X} is missing selector_field {selector_field}")
+
+        selector_value, _ = unpack_value(selector_type, payload, selector_offset)
+        variant = next((v for v in message.variants if v.selector_value == selector_value), None)
+        if variant is None:
+            raise ValueError(
+                f"message 0x{msg_type:04X} does not define a variant for "
+                f"{selector_field}={selector_value}"
+            )
+        values, offset = unpack_fields(variant.fields, payload, 0)
+    else:
+        values, offset = unpack_fields(message.fields, payload, 0)
 
     repeated_items: List[Dict[str, Any]] = []
     if message.repeat_fields:

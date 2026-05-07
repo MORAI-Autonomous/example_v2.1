@@ -16,6 +16,7 @@ class AutonomousDriving:
     def __init__(self, path_file_name=None, map_name=None, max_speed_kph=None):
         config = Config()
         self._velocity_profile_cfg = dict(config['planning']['velocity_profile'])
+        self._max_speed_kph = None
 
         if config["map"]["use_mgeo_path"]:
             mgeo_path = mgeo_dijkstra_path(config["map"]["name"])
@@ -45,9 +46,13 @@ class AutonomousDriving:
 
     def set_max_speed_kph(self, max_speed_kph=None):
         velocity_profile_cfg = dict(self._velocity_profile_cfg)
+        self._max_speed_kph = None
         if max_speed_kph is not None:
-            velocity_profile_cfg["max_velocity"] = float(max_speed_kph)
+            self._max_speed_kph = float(max_speed_kph)
+            velocity_profile_cfg["max_velocity"] = self._max_speed_kph
         self.path_manager.set_velocity_profile(**velocity_profile_cfg)
+        if hasattr(self, "pid"):
+            self.pid.reset()
 
     def execute(self, vehicle_state):
         # 현재 위치 기반으로 local path과 planned velocity 추출
@@ -57,6 +62,8 @@ class AutonomousDriving:
 
         # adaptive cruise control를 활용한 속도 계획
         target_velocity = self.adaptive_cruise_control.get_target_velocity(vehicle_state.velocity, planned_velocity)
+        if self._max_speed_kph is not None:
+            target_velocity = min(target_velocity, self._max_speed_kph / 3.6)
         # 속도 제어를 위한 PID control
         acc_cmd = self.pid.get_output(target_velocity, vehicle_state.velocity)
         # 경로 추종을 위한 pure pursuit control

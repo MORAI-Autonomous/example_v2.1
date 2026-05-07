@@ -172,27 +172,52 @@ def send_simulation_time_mode_command(
     sock: socket.socket,
     request_id: int,
     mode: int,
-    fixed_delta: float,
+    target_fps: int = 60,
+    physics_delta_time: int = 10,
     simulation_speed: float = 1.0,
+    simulation_delta_time: int = 16,
+    rtf: int = 1,
+    user_control: int = 0,
 ) -> None:
-    """mode: 1=variable, 2=fixed_delta, 3=fixed_step"""
+    """mode: 1=variable, 2=fixed."""
+    if mode == proto.TIME_MODE_VARIABLE:
+        payload_values = {
+            "mode": mode,
+            "target_fps": int(target_fps),
+            "physics_delta_time": int(physics_delta_time),
+            "simulation_speed": float(simulation_speed),
+        }
+        log_text = (
+            "SetSimulationTimeModeCommand(0x1102) "
+            f"mode={mode} target_fps={target_fps} physics_delta_time={physics_delta_time} "
+            f"simulation_speed={simulation_speed}"
+        )
+    elif mode == proto.TIME_MODE_FIXED:
+        payload_values = {
+            "mode": mode,
+            "simulation_delta_time": int(simulation_delta_time),
+            "physics_delta_time": int(physics_delta_time),
+            "rtf": int(rtf),
+            "user_control": int(user_control),
+        }
+        log_text = (
+            "SetSimulationTimeModeCommand(0x1102) "
+            f"mode={mode} simulation_delta_time={simulation_delta_time} "
+            f"physics_delta_time={physics_delta_time} rtf={rtf} user_control={user_control}"
+        )
+    else:
+        raise ValueError(f"Unsupported simulation time mode: {mode}")
+
     payload = pack_message_payload(
         proto.MSG_TYPE_SET_SIMULATION_TIME_MODE_COMMAND,
-        {
-            "mode": mode,
-            "fixed_delta": fixed_delta,
-            "simulation_speed": simulation_speed,
-        },
+        payload_values,
     )
     _send_packet(
         sock,
         request_id,
         proto.MSG_TYPE_SET_SIMULATION_TIME_MODE_COMMAND,
         payload,
-        (
-            "SetSimulationTimeModeCommand(0x1102) "
-            f"mode={mode} fixed_delta={fixed_delta} speed={simulation_speed}"
-        ),
+        log_text,
     )
 
 
@@ -328,8 +353,23 @@ def parse_result_code(payload: bytes) -> Optional[Tuple[int, int]]:
 
 
 def parse_get_status_payload(payload: bytes) -> Optional[Dict[str, Any]]:
-    if len(payload) != proto.GET_STATUS_PAYLOAD_SIZE:
+    if len(payload) < proto.RESULT_SIZE + 4:
         return None
+    try:
+        mode = struct.unpack_from("<I", payload, offset=proto.RESULT_SIZE)[0]
+    except struct.error:
+        return None
+
+    if mode == proto.TIME_MODE_VARIABLE:
+        expected_size = proto.GET_STATUS_VARIABLE_SIZE
+    elif mode == proto.TIME_MODE_FIXED:
+        expected_size = proto.GET_STATUS_FIXED_SIZE
+    else:
+        return None
+
+    if len(payload) != expected_size:
+        return None
+
     try:
         values, _, offset = unpack_message_payload(0x1101, payload, direction="response")
     except ValueError:

@@ -182,7 +182,12 @@ def main():
                 elif key == "2":
                     dispatch(MSG_TYPE_SET_SIMULATION_TIME_MODE_COMMAND,
                              lambda rid: tcp.send_simulation_time_mode_command(
-                                 tcp_sock, rid, mode=TIME_MODE_FIXED_STEP, fixed_delta=20.0))
+                                 tcp_sock, rid,
+                                 mode=TIME_MODE_FIXED,
+                                 simulation_delta_time=20,
+                                 physics_delta_time=10,
+                                 rtf=1,
+                                 user_control=0))
 
                 elif key == "3":
                     dispatch(MSG_TYPE_FIXED_STEP,

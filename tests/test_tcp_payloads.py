@@ -9,14 +9,29 @@ import transport.tcp_transport as tcp
 
 
 class TcpPayloadGoldenTests(unittest.TestCase):
-    def test_set_simulation_time_mode_payload(self) -> None:
-        expected = struct.pack("<iff", 2, 33.333333333333336, 1.0)
+    def test_set_simulation_time_mode_variable_payload(self) -> None:
+        expected = struct.pack("<iiif", 1, 60, 10, 1.25)
         actual = pack_message_payload(
             proto.MSG_TYPE_SET_SIMULATION_TIME_MODE_COMMAND,
             {
-                "mode": 2,
-                "fixed_delta": 33.333333333333336,
-                "simulation_speed": 1.0,
+                "mode": proto.TIME_MODE_VARIABLE,
+                "target_fps": 60,
+                "physics_delta_time": 10,
+                "simulation_speed": 1.25,
+            },
+        )
+        self.assertEqual(actual, expected)
+
+    def test_set_simulation_time_mode_fixed_payload(self) -> None:
+        expected = struct.pack("<iiiii", 2, 33, 10, 1, 0)
+        actual = pack_message_payload(
+            proto.MSG_TYPE_SET_SIMULATION_TIME_MODE_COMMAND,
+            {
+                "mode": proto.TIME_MODE_FIXED,
+                "simulation_delta_time": 33,
+                "physics_delta_time": 10,
+                "rtf": 1,
+                "user_control": 0,
             },
         )
         self.assertEqual(actual, expected)
@@ -95,16 +110,15 @@ class TcpPayloadGoldenTests(unittest.TestCase):
         )
         self.assertEqual(actual, expected)
 
-    def test_parse_get_status_payload(self) -> None:
+    def test_parse_get_status_variable_payload(self) -> None:
         payload = struct.pack(
-            proto.RESULT_FMT,
+            proto.GET_STATUS_VARIABLE_FMT,
             0,
             0,
-        ) + struct.pack(
-            proto.STATUS_FMT,
-            2,
-            33.33333206176758,
-            1.0,
+            proto.TIME_MODE_VARIABLE,
+            60,
+            10,
+            1.25,
             123,
             45,
             678,
@@ -113,12 +127,38 @@ class TcpPayloadGoldenTests(unittest.TestCase):
         self.assertIsNotNone(parsed)
         self.assertEqual(parsed["result_code"], 0)
         self.assertEqual(parsed["detail_code"], 0)
-        self.assertEqual(parsed["mode"], 2)
-        self.assertAlmostEqual(parsed["fixed_delta"], 33.33333206176758)
-        self.assertAlmostEqual(parsed["simulation_speed"], 1.0)
+        self.assertEqual(parsed["mode"], proto.TIME_MODE_VARIABLE)
+        self.assertEqual(parsed["target_fps"], 60)
+        self.assertEqual(parsed["physics_delta_time"], 10)
+        self.assertAlmostEqual(parsed["simulation_speed"], 1.25)
         self.assertEqual(parsed["step_index"], 123)
         self.assertEqual(parsed["seconds"], 45)
         self.assertEqual(parsed["nanos"], 678)
+
+    def test_parse_get_status_fixed_payload(self) -> None:
+        payload = struct.pack(
+            proto.GET_STATUS_FIXED_FMT,
+            0,
+            0,
+            proto.TIME_MODE_FIXED,
+            33,
+            10,
+            2,
+            1,
+            456,
+            78,
+            901,
+        )
+        parsed = tcp.parse_get_status_payload(payload)
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed["mode"], proto.TIME_MODE_FIXED)
+        self.assertEqual(parsed["simulation_delta_time"], 33)
+        self.assertEqual(parsed["physics_delta_time"], 10)
+        self.assertEqual(parsed["rtf"], 2)
+        self.assertEqual(parsed["user_control"], 1)
+        self.assertEqual(parsed["step_index"], 456)
+        self.assertEqual(parsed["seconds"], 78)
+        self.assertEqual(parsed["nanos"], 901)
 
     def test_parse_create_object_payload(self) -> None:
         object_id = "Car_9"

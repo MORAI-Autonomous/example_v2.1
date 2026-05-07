@@ -13,8 +13,8 @@ def result_to_string(code: int):
 
 def time_mode_to_string(mode: int):
     if mode == proto.TIME_MODE_VARIABLE:    return "VARIABLE"
-    if mode == proto.TIME_MODE_FIXED_DELTA: return "FIXED_DELTA"
-    if mode == proto.TIME_MODE_FIXED_STEP:  return "FIXED_STEP"
+    if mode == proto.TIME_MODE_FIXED:       return "FIXED"
+    if mode == proto.TIME_MODE_FIXED_STEP:  return "FIXED_STEP_LEGACY"
     return f"UNKNOWN({mode})"
 
 
@@ -74,10 +74,25 @@ class Receiver(threading.Thread):
                     and msg_type == proto.MSG_TYPE_GET_SIMULATION_TIME_STATUS:
                 parsed = tcp.parse_get_status_payload(payload)
                 if parsed:
+                    if parsed["mode"] == proto.TIME_MODE_VARIABLE:
+                        mode_detail = (
+                            f"target_fps={parsed['target_fps']} "
+                            f"physics_dt={parsed['physics_delta_time']}ms "
+                            f"speed={parsed['simulation_speed']:.2f}"
+                        )
+                    elif parsed["mode"] == proto.TIME_MODE_FIXED:
+                        mode_detail = (
+                            f"sim_dt={parsed['simulation_delta_time']}ms "
+                            f"physics_dt={parsed['physics_delta_time']}ms "
+                            f"rtf={parsed['rtf']} user_control={parsed['user_control']}"
+                        )
+                    else:
+                        mode_detail = ""
                     log.append(
                         f"GetStatus rid={request_id} "
                         f"result={parsed['result_code']}({result_to_string(parsed['result_code'])}) "
                         f"mode={time_mode_to_string(parsed['mode'])} "
+                        f"{mode_detail} "
                         f"step={parsed['step_index']} "
                         f"sim={parsed['seconds']}s {parsed['nanos']}ns",
                         "RECV"

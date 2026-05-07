@@ -178,8 +178,11 @@ def _build_vehicles(count: int) -> None:
                                     min_value=1.0, max_value=300.0,
                                     step=0, width=90,
                                     format="%.0f",
+                                    on_enter=True,
                                     callback=lambda s=None, a=None, u=i: _on_max_speed_change(u))
                 dpg.add_text("km/h", color=(140, 140, 140, 255))
+                dpg.add_button(label="Apply",
+                               callback=lambda s=None, a=None, u=i: _on_max_speed_change(u))
 
             with dpg.group(horizontal=True):
                 for key, label in [

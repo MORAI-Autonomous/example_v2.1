@@ -21,3 +21,7 @@ class Pid:
         output = self.p_gain*error + self.i_gain*self.integral_error + self.d_gain*derivative_error
         self.previous_error = error
         return output
+
+    def reset(self):
+        self.previous_error = 0.0
+        self.integral_error = 0.0
