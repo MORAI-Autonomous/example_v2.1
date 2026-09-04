@@ -27,6 +27,7 @@ import panels.commands           as cmd_panel
 import panels.lane_control_panel  as lc_panel
 import panels.camera_sensor_panel as cam_sensor_panel
 import panels.radar_sensor_panel as radar_sensor_panel
+import panels.lidar_panel as lidar_panel
 import panels.autonomous_panel    as au_panel
 import panels.file_playback_panel as fp_panel
 import panels.transform_playback_panel as tfp_panel
@@ -50,8 +51,8 @@ _INTERFACE_CONSOLE_STATE_FILE = os.path.join(
 )
 _DEFAULT_TAB = "udp"
 _TAB_KEYS = {
-    "udp", "udp_ctrl", "cam_sensor", "radar_sensor", "object_control",
-    "traffic", "lc", "au", "fp", "tfp",
+    "udp", "udp_ctrl", "cam_sensor", "radar_sensor", "lidar_sensor",
+    "object_control", "traffic", "lc", "au", "fp", "tfp",
 }
 CMD_W      = 400        # Fixed command panel width.
 LOG_H      = 280        # Fixed log panel height.
@@ -952,6 +953,7 @@ def build_ui(state: InterfaceConsoleState):
         dpg.configure_item("udp_ctrl_scroll", show=(name == "udp_ctrl"))
         dpg.configure_item("cam_sensor_scroll", show=(name == "cam_sensor"))
         dpg.configure_item("radar_sensor_scroll", show=(name == "radar_sensor"))
+        dpg.configure_item("lidar_scroll", show=(name == "lidar_sensor"))
         dpg.configure_item("object_control_scroll", show=(name == "object_control"))
         dpg.configure_item("traffic_scroll", show=(name == "traffic"))
         dpg.configure_item("lc_scroll",  show=(name == "lc"))
@@ -961,6 +963,7 @@ def build_ui(state: InterfaceConsoleState):
         for tag, key in [("tab_btn_udp", "udp"), ("tab_btn_udp_ctrl", "udp_ctrl"),
                          ("tab_btn_cam_sensor", "cam_sensor"),
                          ("tab_btn_radar_sensor", "radar_sensor"),
+                         ("tab_btn_lidar_sensor", "lidar_sensor"),
                          ("tab_btn_object_control", "object_control"),
                          ("tab_btn_traffic", "traffic"),
                          ("tab_btn_lc", "lc"),
@@ -1092,6 +1095,8 @@ def build_ui(state: InterfaceConsoleState):
                                    callback=lambda: _select_tab("cam_sensor"))
                     dpg.add_button(label=" Radar Sensor ", tag="tab_btn_radar_sensor",
                                    callback=lambda: _select_tab("radar_sensor"))
+                    dpg.add_button(label=" LiDAR Sensor ", tag="tab_btn_lidar_sensor",
+                                   callback=lambda: _select_tab("lidar_sensor"))
                     dpg.add_button(label=" Object Control ", tag="tab_btn_object_control",
                                    callback=lambda: _select_tab("object_control"))
                     dpg.add_button(label=" Traffic Scenario ", tag="tab_btn_traffic",
@@ -1126,6 +1131,11 @@ def build_ui(state: InterfaceConsoleState):
                                       width=-1, height=-1,
                                       border=False, show=False):
                     radar_sensor_panel.build(parent="radar_sensor_scroll")
+
+                with dpg.child_window(tag="lidar_scroll",
+                                      width=-1, height=-1,
+                                      border=False, show=False):
+                    lidar_panel.build(parent="lidar_scroll")
 
                 with dpg.child_window(tag="object_control_scroll",
                                       width=-1, height=-1,
@@ -1331,6 +1341,7 @@ def main():
         state.lc_runner.stop()
     cam_sensor_panel.stop()
     radar_sensor_panel.stop()
+    lidar_panel.stop()
     if state.receiver:
         state.receiver.stop()
     if state.tcp_sock:

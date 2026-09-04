@@ -107,6 +107,8 @@ Known state files:
 - `config/tfp_state.json`
 - `config/monitor_state.json`
 - `config/udp_control_state.json`
+- `config/camera_sensor_state.json`
+- `config/lidar_sensor_state.json`
 
 ## Template Resolution
 
@@ -133,6 +135,58 @@ Code should resolve templates by file name through `utils.template_paths.resolve
 - BBox receiver: [src/receivers/camera_sensor_receiver.py](../src/receivers/camera_sensor_receiver.py)
 
 Depth rendering details live in [camera-sensor.md](camera-sensor.md).
+
+## LiDAR Sensor
+
+`LiDAR Sensor` is a single-slot panel that renders LiDAR point clouds in 3D perspective.
+
+- UI: [src/panels/lidar_panel.py](../src/panels/lidar_panel.py)
+- Camera and projection: [src/utils/camera3d.py](../src/utils/camera3d.py)
+- Receiver: [src/receivers/lidar_receiver.py](../src/receivers/lidar_receiver.py)
+- Template: `templates/sensor/LiDAR PointCloud.tmpl` — used only to read the fixed
+  `frame_id` byte length at construction; the rest of the wire layout (chunked UDP
+  framing + flat XYZI point block) is hardcoded in the receiver.
+
+### Rendering
+
+`render_frame()` is a pure function: it projects points with `camera3d.project()`,
+sorts them far-to-near, applies a TURBO colormap over height or intensity, and writes
+into pre-allocated module buffers. A dedicated `RenderWorker` thread consumes a dirty
+flag so neither the receive loop nor the UI thread ever renders.
+
+The receive loop must stay non-blocking. `_on_lidar_packet` stores the point array and
+marks the frame dirty; rendering inside it would stall `recvfrom` and drop chunks of the
+next frame.
+
+Measured on Windows 11 / Python 3.12 at 960x600 (minimum of 15 runs):
+
+| points | assemble | parse | render | total | fps |
+|---:|---:|---:|---:|---:|---:|
+| 600k | 1.8 ms | 1.3 ms | 52.0 ms | 55.1 ms | 18.2 |
+
+The renderer carries seven documented constraints (see the design spec). Dropping any
+of the two largest techniques costs enough to miss the 600k target — `tests/test_lidar_render.py`
+guards them behind `LIDAR_PERF=1` (environment-gated) but does not guard a single small one.
+
+### Partial frame recovery
+
+A 600k frame is 9.6 MB and arrives as ~147 UDP chunks. Discarding a frame for one lost
+chunk would leave 23% of frames usable at 1% packet loss. The receiver instead groups
+received chunks into contiguous runs and recovers every whole point inside them, which
+holds 98% of points at the same loss rate. Chunk offsets are only derivable when all
+chunks share a size, so the receiver verifies that and falls back to a prefix otherwise.
+A frame missing chunk 0 has no header and is discarded.
+
+`Loss` in the panel's stat line reports the fraction of missing chunks.
+
+### Camera
+
+`OrbitCamera` is a frozen dataclass, so the UI thread publishes camera changes and the
+render worker reads them without a lock. Presets: Top (yaw 180, pitch 89 — matches the
+old 2D top-down orientation), Front (0, 0), Side (270, 0), Iso (315, 25).
+
+State lives in `config/lidar_sensor_state.json` (schema v2; v1 four-slot files migrate
+from the first slot).
 
 ## Lane Control
 
