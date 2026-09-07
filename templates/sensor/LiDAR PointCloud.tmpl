@@ -1,0 +1,69 @@
+{
+	"version": "1.0.0-alpha",
+	"messageTemplate":
+	{
+		"name": "LiDAR PointCloud (UDP)",
+		"isControl": false,
+		"isSensor": true,
+		"description": "Flat XYZI point cloud over raw UDP. 'data' is a block of N consecutive {x,y,z,intensity} float32 LE point records (point_step=16, row_step=16*width). Trailing 'is_dense' bool and PointField descriptor bytes present after 'data' on the wire are not decoded by this client.",
+		"segmentList": [
+			{
+				"type": "FIELDS",
+				"relationName": "LidarEntity",
+				"fieldList": [
+					{
+						"name": "frame_id",
+						"relationName": "LidarEntity",
+						"variableName": "frame_id",
+						"variableType": "STRING",
+						"length": 64
+					},
+					{
+						"name": "height",
+						"relationName": "LidarEntity",
+						"variableName": "height",
+						"variableType": "UINT32"
+					},
+					{
+						"name": "width",
+						"relationName": "LidarEntity",
+						"variableName": "width",
+						"variableType": "UINT32"
+					},
+					{
+						"name": "is_bigendian",
+						"relationName": "LidarEntity",
+						"variableName": "is_bigendian",
+						"variableType": "BOOL"
+					},
+					{
+						"name": "point_step",
+						"relationName": "LidarEntity",
+						"variableName": "point_step",
+						"variableType": "UINT32"
+					},
+					{
+						"name": "row_step",
+						"relationName": "LidarEntity",
+						"variableName": "row_step",
+						"variableType": "UINT32"
+					},
+					{
+						"name": "data",
+						"relationName": "LidarEntity",
+						"variableName": "data",
+						"variableType": "BYTES",
+						"length": 0,
+						"fieldOutputFormat": "XYZI_FLOAT32"
+					},
+					{
+						"name": "is_dense",
+						"relationName": "LidarEntity",
+						"variableName": "is_dense",
+						"variableType": "BOOL"
+					}
+				]
+			}
+		]
+	}
+}
